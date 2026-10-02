@@ -1,28 +1,17 @@
-<p align="center">
-  <img src="docs/showcase/hero.jpg" alt="latentgen, spelled out in generated faces" width="100%">
-</p>
+![latentgen, spelled out in generated faces](docs/showcase/hero.jpg)
 
-<p align="center">
-  <b>Sketch in codes, paint in detail, redraft until it holds.</b><br>
-  A small, dataset-agnostic generative pipeline for images and audio:
-  a MaskGIT transformer samples a coarse grid of discrete codes, a conditional GAN paints the detail on top.
-</p>
+**Sketch in codes, paint in detail, redraft until it holds.** A small, dataset-agnostic generative
+pipeline for images and audio: a MaskGIT transformer samples a coarse grid of discrete codes, a
+conditional GAN paints the detail on top.
 
-<p align="center">
-  <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-3776ab">
-  <img alt="pytorch" src="https://img.shields.io/badge/pytorch-2.4%2B-ee4c2c">
-  <img alt="data" src="https://img.shields.io/badge/data-images%20%7C%20audio-7c3aed">
-  <img alt="gpu" src="https://img.shields.io/badge/runs%20on-one%20GPU-16a34a">
-</p>
+![python](https://img.shields.io/badge/python-3.10%2B-3776ab)
+![pytorch](https://img.shields.io/badge/pytorch-2.4%2B-ee4c2c)
+![data](https://img.shields.io/badge/data-images%20%7C%20audio-7c3aed)
+![gpu](https://img.shields.io/badge/runs%20on-one%20GPU-16a34a)
 
-<p align="center">
-  <a href="#what-it-makes">What it makes</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#1-quick-start">Quick start</a> ·
-  <a href="#3-the-pipeline-stage-by-stage">The stages</a> ·
-  <a href="#4-using-your-own-dataset">Your own data</a> ·
-  <a href="#14-audio-and-other-1-d-data">Audio</a>
-</p>
+[What it makes](#what-it-makes) · [How it works](#how-it-works) · [Quick start](#1-quick-start) ·
+[The stages](#3-the-pipeline-stage-by-stage) · [Your own data](#4-using-your-own-dataset) ·
+[Audio](#14-audio-and-other-1-d-data)
 
 ---
 
@@ -33,7 +22,7 @@ Every face on this page was sampled from scratch by models trained with the
 [`scripts/make_showcase.py`](scripts/make_showcase.py) straight from your checkpoints, so after training on
 your own data, one command rebuilds this page with your samples.
 
-<p align="center"><img src="docs/showcase/gallery.jpg" alt="a wall of generated samples" width="100%"></p>
+![a wall of generated samples](docs/showcase/gallery.jpg)
 
 ### Two decoders, one sketch
 
@@ -41,28 +30,28 @@ The sampled code grid is a deliberately lossy sketch: 32×32 symbols from a 256-
 smaller than the image. Decoded directly it is faithful but soft; the conditional GAN instead predicts the
 rich latent the real photo would have had, and the autoencoder renders it sharp.
 
-<p align="center"><img src="docs/showcase/two_decoders.jpg" alt="codes, VQ-VAE decode and GAN decode side by side" width="100%"></p>
+![codes, VQ-VAE decode and GAN decode side by side](docs/showcase/two_decoders.jpg)
 
 ### Drafted, then redrafted
 
 Sampling fills the empty grid one slot at a time, then repeatedly keeps a few percent of it and redraws
 everything else around those anchors. Early rounds change the person entirely; late rounds only polish.
 
-<p align="center"><img src="docs/showcase/refinement.jpg" alt="a sample after every refine round" width="100%"></p>
+![a sample after every refine round](docs/showcase/refinement.jpg)
 
 ### One sketch, many finishes
 
 The codes fix identity, pose and layout; the GAN's noise decides the rest. The same grid through eight
 noise draws:
 
-<p align="center"><img src="docs/showcase/variations.jpg" alt="one code grid decoded with eight noise draws" width="100%"></p>
+![one code grid decoded with eight noise draws](docs/showcase/variations.jpg)
 
 ### Keep half, reimagine the rest
 
 MaskGIT is trained on partly hidden grids, so inpainting and outpainting need no extra training: keep
 some codes, mask the rest, fill (`latentgen.sampling.resample`).
 
-<p align="center"><img src="docs/showcase/inpainting.jpg" alt="half of a code grid kept, the other half redrawn five times" width="100%"></p>
+![half of a code grid kept, the other half redrawn five times](docs/showcase/inpainting.jpg)
 
 > Regenerate everything above from your own runs:
 > `python scripts/make_showcase.py --config configs/ffhq512.yaml` (250 samples by default; `--compose-only`
