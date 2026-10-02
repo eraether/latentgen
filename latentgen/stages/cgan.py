@@ -19,7 +19,7 @@ import torch
 import torch.nn.functional as F
 
 from latentgen.config import Config
-from latentgen.data import EncodedDataset, ImageStats, waveform_image
+from latentgen.data import ImageStats, audio_panel
 from latentgen.device import autocast
 from latentgen.nn import Autoencoder, Discriminator, Generator
 from latentgen.training.images import image_grid
@@ -64,7 +64,7 @@ class CGANStage(Stage):
         self,
         cfg: Config,
         device: torch.device,
-        data: EncodedDataset,
+        data,
         stats: ImageStats,
         autoencoder: Autoencoder | None = None,
     ) -> None:
@@ -171,8 +171,8 @@ class CGANStage(Stage):
             fake_ema = self.generator.ema.model(codes)
             decoded = self.autoencoder.decode(torch.cat([real, fake.to(real.dtype), fake_ema.to(real.dtype)]))
         real_out, fake_out, ema_out = (self.stats.denormalize(x.float()) for x in decoded.split(n))
-        if self.cfg.data.kind == "audio":  # real / generator / EMA waveforms stacked top to bottom
-            return torch.cat([waveform_image(x[0]) for x in (real_out, fake_out, ema_out)], dim=-2)
+        if self.cfg.data.kind == "audio":  # real / generator / EMA, top to bottom
+            return audio_panel([real_out[0], fake_out[0], ema_out[0]])
         return image_grid([real_out, fake_out, ema_out], max_rows=n, downscale=2)  # real | generator | EMA
 
     def state_dict(self) -> dict:

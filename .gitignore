@@ -11,3 +11,4 @@ generated/
 *.pth
 .pytest_cache/
 .ruff_cache/
+showcase_work/

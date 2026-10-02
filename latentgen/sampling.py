@@ -77,23 +77,59 @@ def fill(
 
 @torch.no_grad()
 def generate_codes(
-    model: MaskGIT, batch_size: int, sample_fraction: float, keep_schedule, on_pass: Callable | None = None
+    model: MaskGIT,
+    batch_size: int,
+    sample_fraction: float,
+    keep_schedule,
+    on_pass: Callable | None = None,
+    on_fill: Callable[[int, float, torch.Tensor], None] | None = None,
 ) -> torch.Tensor:
-    """Sample ``[B, H, W]`` code grids from scratch (see module docstring)."""
+    """Sample ``[B, H, W]`` code grids from scratch (see module docstring).
+
+    ``on_fill(round, keep, codes)`` is called after every fill with a copy of the ``[B, H, W]`` grids,
+    e.g. to watch a sample take shape over the refine rounds.
+    """
     device = next(model.parameters()).device
-    S = model.cfg.num_positions
+    H, W = model.cfg.grid_h, model.cfg.grid_w
+    S = H * W
     codes = torch.zeros(batch_size, S, dtype=torch.long, device=device)
-    for keep, n_sample, _ in fill_plan(S, sample_fraction, keep_schedule):
+    for i, (keep, n_sample, _) in enumerate(fill_plan(S, sample_fraction, keep_schedule)):
         n_keep = round(keep * S)
         kept = torch.rand(batch_size, S, device=device).argsort(dim=1)[:, :n_keep]
         mask = torch.ones(batch_size, S, dtype=torch.bool, device=device).scatter_(1, kept, False)
         fill(model, codes, mask, n_sample, on_pass)
-    return codes.view(batch_size, model.cfg.grid_h, model.cfg.grid_w)
+        if on_fill is not None:
+            on_fill(i, keep, codes.view(batch_size, H, W).clone())
+    return codes.view(batch_size, H, W)
+
+
+@torch.no_grad()
+def resample(
+    model: MaskGIT,
+    codes: torch.Tensor,
+    keep: torch.Tensor,
+    sample_fraction: float,
+    on_pass: Callable | None = None,
+) -> torch.Tensor:
+    """Redraw every slot of ``codes [B, H, W]`` where ``keep [B, H, W]`` is False, conditioned on the rest.
+
+    Inpainting / outpainting with no extra training: MaskGIT was trained on partially masked grids,
+    so "keep the top half, re-imagine the bottom" is just one fill. ``keep`` must mask the same number
+    of slots in every row.
+    """
+    B, H, W = codes.shape
+    out = codes.reshape(B, H * W).clone()
+    mask = ~keep.reshape(B, H * W)
+    n_masked = mask.sum(dim=1)
+    if not bool((n_masked == n_masked[0]).all()):
+        raise ValueError("every grid must re-mask the same number of slots")
+    fill(model, out, mask.clone(), round(sample_fraction * int(n_masked[0])), on_pass)
+    return out.view(B, H, W)
 
 
 @torch.no_grad()
 def decode_vq(codes: torch.Tensor, vqvae: VQVAE, stats) -> torch.Tensor:
-    """codes -> denormalised ``[B, C, H, W]`` images (or ``[B, 1, T]`` waveforms) through the VQ-VAE decoder."""
+    """codes -> denormalized ``[B, C, H, W]`` images (or ``[B, 1, T]`` waveforms) through the VQ-VAE decoder."""
     with autocast(codes.device):
         images = vqvae.decode(codes)
     return stats.denormalize(images.float())
@@ -101,7 +137,7 @@ def decode_vq(codes: torch.Tensor, vqvae: VQVAE, stats) -> torch.Tensor:
 
 @torch.no_grad()
 def decode_gan(codes: torch.Tensor, generator: Generator, autoencoder: Autoencoder, stats) -> torch.Tensor:
-    """codes -> GAN latent -> AE decoder -> denormalised images / waveforms."""
+    """codes -> GAN latent -> AE decoder -> denormalized images / waveforms."""
     with autocast(codes.device):
         images = autoencoder.decode(generator(codes))
     return stats.denormalize(images.float())

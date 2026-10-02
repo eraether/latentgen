@@ -8,7 +8,8 @@ Generate images: sample code grids with MaskGIT, decode them with the VQ-VAE and
 
 Each batch is saved as one PNG in generate.out_dir. With decode=both every row is [VQ | GAN] pairs,
 so you can see what the GAN adds on top of the blurry VQ reconstruction of the same code grid.
-For audio datasets (data.kind: audio) every sample is written as .wav files instead, plus a waveform PNG.
+For audio datasets (data.kind: audio) every sample is written as .wav files instead, plus a waveform /
+spectrogram PNG.
 """
 
 import sys
@@ -22,7 +23,7 @@ import torch  # noqa: E402
 from tqdm import tqdm  # noqa: E402
 
 from latentgen.cli import build_parser, checkpoint_for, load_cfg, setup  # noqa: E402
-from latentgen.data import save_wav, waveform_image  # noqa: E402
+from latentgen.data import audio_panel, save_wav  # noqa: E402
 from latentgen.device import maybe_compile  # noqa: E402
 from latentgen.pretrained import load_autoencoder, load_generator, load_maskgit, load_vqvae  # noqa: E402
 from latentgen.sampling import decode_gan, decode_vq, fill_plan, forward_passes, generate_codes  # noqa: E402
@@ -84,14 +85,14 @@ def main() -> None:
                 columns.append(decode_gan(codes, generator, autoencoder, stats))
             path = out_dir / f"{run}_{batch_idx:05d}.png"
             if cfg.data.kind == "audio":
-                # one .wav per sample and decoder, plus a waveform picture of the first sample per decoder
+                # one .wav per sample and decoder, plus waveform + spectrogram of the first sample per decoder
                 names = [n for n, m in (("vq", vqvae), ("gan", generator)) if m is not None]
                 for i in range(batch):
                     for name, out in zip(names, columns, strict=True):
                         save_wav(
                             out_dir / f"{run}_{batch_idx:05d}_{i}_{name}.wav", out[i], cfg.data.sample_rate
                         )
-                save_image(torch.cat([waveform_image(c[0]) for c in columns], dim=-2), path)
+                save_image(audio_panel([c[0] for c in columns]), path)
             else:
                 # one tile per sampled grid: [VQ | GAN] side by side, `pairs_per_row` tiles per row
                 tiles = [image_grid([c[i : i + 1] for c in columns], max_rows=1) for i in range(batch)]

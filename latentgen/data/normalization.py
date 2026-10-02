@@ -1,12 +1,12 @@
 """
-Per-channel image normalisation.
+Per-channel image normalization.
 
-Images are stored as ``[0, 1]`` floats and normalised to roughly zero mean / unit variance with
+Images are stored as ``[0, 1]`` floats and normalized to roughly zero mean / unit variance with
 per-channel statistics of the training set. The defaults are FFHQ's; for your own dataset run
 ``scripts/00_compute_dataset_stats.py`` and point ``data.stats_file`` at the JSON it writes.
 
 The stats travel with every checkpoint and with the encoded dataset, so downstream stages and
-inference never need the original config to undo the normalisation.
+inference never need the original config to undo the normalization.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import torch
 
 FFHQ_MEAN = (0.5326635696186963, 0.4840257880077774, 0.4746593392437331)
 FFHQ_STD = (0.23375539610753213, 0.22486911131803633, 0.22463677431223736)
-AUDIO_MEAN = (0.0,)  # mono waveforms in [-1, 1] are already centred; scale them up to ~unit variance
+AUDIO_MEAN = (0.0,)  # mono waveforms in [-1, 1] are already centered; scale them up to ~unit variance
 AUDIO_STD = (0.1,)
 
 
@@ -76,11 +76,11 @@ class ImageStats:
         object.__setattr__(self, "std", state["std"])
 
     def normalize(self, x: torch.Tensor, batched: bool = True) -> torch.Tensor:
-        """raw ``[0, 1]`` image (or waveform) -> normalised. ``batched=False`` for a single ``[C, ...]`` item."""
+        """raw ``[0, 1]`` image (or waveform) -> normalized. ``batched=False`` for a single ``[C, ...]`` item."""
         mean, std = self._tensors(x, batched)
         return (x - mean) / std
 
     def denormalize(self, x: torch.Tensor, batched: bool = True) -> torch.Tensor:
-        """normalised -> raw (not clamped)."""
+        """normalized -> raw (not clamped)."""
         mean, std = self._tensors(x, batched)
         return x * std + mean

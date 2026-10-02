@@ -1,7 +1,20 @@
-"""Datasets: raw image folders (stage 1) and the encoded code/latent file (stages 2, 3)."""
+"""Datasets: raw image / audio folders (stage 1) and the encoded coarse / fine files (stages 2, 3)."""
 
-from latentgen.data.audio import AudioFolderDataset, load_wav, save_wav, waveform_image
-from latentgen.data.encoded import LATENT_SCALE, EncodedDataset, save_encoded
+from latentgen.data.audio import (
+    AudioFolderDataset,
+    audio_panel,
+    load_wav,
+    save_wav,
+    spectrogram_image,
+    waveform_image,
+)
+from latentgen.data.encoded import (
+    LATENT_SCALE,
+    EncodedDataset,
+    EncodedStream,
+    EncodedWriter,
+    open_encoded,
+)
 from latentgen.data.epoch import EpochTracker
 from latentgen.data.images import (
     ImageBatches,
@@ -15,11 +28,15 @@ from latentgen.data.normalization import ImageStats
 
 __all__ = [
     "AudioFolderDataset",
+    "audio_panel",
     "load_wav",
     "save_wav",
+    "spectrogram_image",
     "waveform_image",
     "LATENT_SCALE",
     "EncodedDataset",
+    "EncodedStream",
+    "EncodedWriter",
     "EpochTracker",
     "ImageBatches",
     "ImageFolderDataset",
@@ -27,6 +44,6 @@ __all__ = [
     "image_dataset_from_config",
     "list_images",
     "load_image",
-    "save_encoded",
+    "open_encoded",
     "to_pil",
 ]

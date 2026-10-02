@@ -5,7 +5,7 @@ Stage 2 -- train MaskGIT, the generative model over VQ code grids.
     python scripts/02_train_maskgit.py --config configs/ffhq512.yaml
     python scripts/02_train_maskgit.py --resume runs/maskgit/latest
 
-Reads data.encoded_file (stage 1c). The grid size and vocabulary come from that file, so the only
+Reads coarse_encoded.pt from data.encoded_dir (stage 1c) -- never the much larger fine latents. The grid size and vocabulary come from that file, so the only
 things to choose are the transformer size (maskgit.model.*) and the training knobs.
 The console shows cross-entropy / accuracy per mask-ratio bucket at every log.
 """
@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from latentgen.cli import build_parser, choose_run_dir, load_cfg, setup  # noqa: E402
 from latentgen.config import fill_from_data  # noqa: E402
-from latentgen.data import EncodedDataset  # noqa: E402
+from latentgen.data import open_encoded  # noqa: E402
 from latentgen.stages import MaskGITStage  # noqa: E402
 from latentgen.training import Trainer  # noqa: E402
 
@@ -28,7 +28,14 @@ def main() -> None:
     cfg = load_cfg(args)
     device = setup(cfg)
 
-    data = EncodedDataset(cfg.data.encoded_file, device, storage=cfg.data.encoded_device, need_latents=False)
+    data = open_encoded(
+        cfg.data.encoded_dir,
+        device,
+        need_latents=False,
+        storage=cfg.data.encoded_device,
+        loading=cfg.data.encoded_loading,
+        prefetch_batches=cfg.data.prefetch_batches,
+    )
     # grid / vocabulary are properties of the data, not choices: fill them in from the encoded file
     cfg.maskgit.model = fill_from_data(
         cfg.maskgit.model, codebook_size=data.codebook_size, grid_h=data.grid_h, grid_w=data.grid_w

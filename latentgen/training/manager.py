@@ -114,5 +114,5 @@ class ModelManager:
                 print(f"[{self.name}] EMA restored ({self.ema.num_updates} blends)")
             else:
                 self.ema.copy_from(self.model)
-                print(f"[{self.name}] EMA initialised from the loaded weights")
+                print(f"[{self.name}] EMA initialized from the loaded weights")
         self.step_count = int(state.get("step_count", 0))
