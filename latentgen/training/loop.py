@@ -184,6 +184,21 @@ class Trainer:
         pdb.set_trace()
         self.stage.discard_partial_step()
 
+    def _log_data_pipeline(self, pbar: tqdm) -> None:
+        """Streaming loaders report how often the training loop had to wait for data."""
+        pop_timing = getattr(self.stage.data, "pop_timing", None)
+        if pop_timing is None:
+            return
+        timing = pop_timing()
+        for name, value in timing.items():
+            self.logger.scalar(f"data/{name}", value, self.step)
+        if timing["stalls"]:
+            pbar.write(
+                f"  data loader: training waited {int(timing['stalls'])}x, {timing['stall_ms']:.0f} ms in total "
+                f"(slowest chunk read {timing['chunk_load_max_s']:.2f} s); raise data.prefetch_batches or use "
+                f"faster storage if this keeps happening"
+            )
+
     def run(self) -> None:
         tc = self.train_cfg
         per_step = tc.microbatches_per_step
@@ -202,6 +217,9 @@ class Trainer:
             while self.epoch < tc.epochs and not self._interrupted:
                 self._run_epoch()
         finally:
+            close = getattr(stage.data, "close", None)  # streaming loaders stop their threads
+            if close is not None:
+                close()
             self.images.close()
             self.logger.close()
 
@@ -257,6 +275,7 @@ class Trainer:
                     self.logger.scalar(f"lr/{m.name}", m.current_lr(), self.step)
                     self.logger.scalar(f"steps/{m.name}", m.step_count, self.step)
                 self.logger.flush(self.step)
+                self._log_data_pipeline(pbar)
                 stage.on_log(self.logger, self.step)
 
             due_time = time.time() - self.last_save_time > tc.save_every_seconds

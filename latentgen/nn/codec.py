@@ -22,7 +22,7 @@ from latentgen.nn.layers import mlp2d_stack, run_layers
 
 
 def patchify(x: torch.Tensor, patch_size: int, dims: int) -> torch.Tensor:
-    """Fold ``patch_size`` neighbouring samples/pixels into the channel dim (see module docstring)."""
+    """Fold ``patch_size`` neighboring samples/pixels into the channel dim (see module docstring)."""
     p = patch_size
     if dims == 2:
         return nn.functional.pixel_unshuffle(x, p)
@@ -84,10 +84,10 @@ class PatchDecoder(nn.Module):
         self.checkpointing = checkpointing
         self.patch_size, self.dims = patch_size, dims
         # NOTE: registration order matters beyond names -- optimizer state is matched to parameters by
-        # position, so this order is part of the checkpoint format too (it is the original scripts' order).
+        # position, so reordering these lines would break resuming from existing checkpoints.
         self.layers = mlp2d_stack(num_layers, hidden_size, intermediate_size)
         self.output_proj = nn.Conv2d(hidden_size, channels * patch_size**dims, kernel_size=1, bias=False)
-        # the single spatial-mixing op of the codec: lets each output patch see its neighbours
+        # the single spatial-mixing op of the codec: lets each output patch see its neighbors
         self.receptive_field_expansion = nn.Conv2d(
             bottleneck_dim, hidden_size, kernel_size=3, padding=1, bias=False
         )

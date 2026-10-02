@@ -12,7 +12,7 @@ from __future__ import annotations
 import torch
 
 from latentgen.config import Config
-from latentgen.data import EncodedDataset, ImageStats
+from latentgen.data import ImageStats
 from latentgen.device import autocast
 from latentgen.nn.maskgit import MaskGIT, masked_cross_entropy, random_mask
 from latentgen.training.logging import MetricLogger
@@ -73,7 +73,7 @@ class MaskRatioBuckets:
 class MaskGITStage(Stage):
     name = "maskgit"
 
-    def __init__(self, cfg: Config, device: torch.device, data: EncodedDataset, stats: ImageStats) -> None:
+    def __init__(self, cfg: Config, device: torch.device, data, stats: ImageStats) -> None:
         super().__init__(cfg, device, data, stats)
         model = MaskGIT(cfg.maskgit.model, checkpointing=self.train_cfg.activation_checkpointing)
         self.managers = [

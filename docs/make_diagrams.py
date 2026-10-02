@@ -108,7 +108,7 @@ class Canvas:
         self.parts.append(f'<path d="{d}" fill="none" stroke="{color}" stroke-width="{width}"{mk}{dash}/>')
 
     def grid(self, x, y, n, cell, values=None, masked=None, kind="maskgit", label=None):
-        """An n x n token grid. `values` colours cells by code id, `masked` set of (r, c) drawn hatched."""
+        """An n x n token grid. `values` colors cells by code id, `masked` set of (r, c) drawn hatched."""
         fill, stroke = STAGE[kind]
         palette = ["#bfdbfe", "#fde68a", "#bbf7d0", "#fecaca", "#ddd6fe", "#fbcfe8", "#a5f3fc", "#fed7aa"]
         for r in range(n):
@@ -233,12 +233,13 @@ def pipeline_overview():
         150,
         190,
         130,
-        "data/encoded.pt",
+        "data/encoded/",
         [
-            "codes   int16 [2, N, 32, 32]",
-            "latents int8  [2, N, 32, 32, 32]",
-            "",
-            "stages 2 and 3 only read this",
+            "coarse_encoded.pt",
+            "int16 codes [N, 2, 32, 32]",
+            "fine_encoded.pt",
+            "int8 latents [N, 2, 32, 32, 32]",
+            "MaskGIT reads only coarse",
         ],
         kind="data",
         mono_body=False,
@@ -424,7 +425,7 @@ def codebook_cutover():
             "-> 6 transformer layers -> RMSNorm -> Linear",
             "-> codebook [256, 64]   (new every pass!)",
             "",
-            "acts as a strong regulariser: no dead codes",
+            "acts as a strong regularizer: no dead codes",
         ],
         kind="vqvae",
         body_size=11,
@@ -473,7 +474,7 @@ def codebook_cutover():
         95,
         None,
         [
-            "FFHQ timeline from the original notes:  PSNR 24.4 dB at cutover (2 epochs, 2180 steps, 30 min)  ->  25.2 dB after 5 epochs (6020 steps, 1 h)",
+            "FFHQ timeline:  PSNR 24.4 dB at cutover (2 epochs, 2180 steps, 30 min)  ->  25.2 dB after 5 epochs (6020 steps, 1 h)",
             "Resuming a pre-cutover checkpoint past the step?  The trainer cuts over right after the next optimizer step.",
             "Force it:  python scripts/01a_train_vqvae.py --resume runs/vqvae/latest --cutover-now",
         ],
@@ -516,7 +517,7 @@ def stage2_maskgit():
         (2, 0),
         (4, 4),
     }
-    c.grid(60, 110, 5, 26, label="code grid from encoded.pt")
+    c.grid(60, 110, 5, 26, label="code grid from coarse_encoded.pt")
     c.text(125, 272, "[B, 32, 32] ints in 0..255", size=10, color=MUTED, mono=True)
     c.arrow(200, 175, 250, 175)
     c.text(225, 100, "mask r ~ U[0.3, 1.0]", size=11, color=MUTED)
@@ -531,7 +532,7 @@ def stage2_maskgit():
         "MaskGIT  (latentgen/nn/maskgit.py)",
         [
             "code_embedding [256, 512] (+ learned mask token)",
-            "2D RoPE: head dims rotate by row and by column",
+            "RoPE: axial (row / column) for images, 1-D for audio",
             "24 x TransformerLayer (attention + SwiGLU)",
             "final RMSNorm -> Linear to 256 logits per position",
             "",
@@ -567,7 +568,7 @@ def stage2_maskgit():
         "Why mask ratios 30 %..100 %?",
         [
             "Generation starts from a fully masked grid and every refine round re-masks 36 %..99 % of it, so the hard,",
-            "high-density states dominate. Inside a fill the mask thins out further; those easier states are left to generalise.",
+            "high-density states dominate. Inside a fill the mask thins out further; those easier states are left to generalize.",
         ],
         kind="plain",
         body_size=11,
@@ -580,8 +581,8 @@ def stage2_maskgit():
         85,
         "Training data path",
         [
-            "the whole encoded dataset (int16 codes, 2 x 70k x 32 x 32 = 290 MB) sits in CPU RAM or VRAM (data.encoded_device);",
-            "a batch is a random gather of rows + a random flip variant; no image decoding, no DataLoader, no disk reads.",
+            "only coarse_encoded.pt is read (int16 codes, 70k x 2 x 32 x 32 = 290 MB), held in CPU RAM or VRAM; a batch is a random",
+            "gather of rows + a random flip variant. Datasets too big for RAM are chunked by stage 1c and streamed in the background.",
         ],
         kind="data",
         body_size=11,
@@ -621,7 +622,7 @@ def stage3_cgan():
         "Generator",
         [
             "code embedding + Linear(noise ~ N(0,1)) per position",
-            "12 x TransformerLayer with 2D RoPE",
+            "12 x TransformerLayer with RoPE",
             "RMSNorm -> Linear(32) -> tanh",
             "out: fake latent [B, 32, 32, 32] in [-1, 1]",
         ],
@@ -635,8 +636,8 @@ def stage3_cgan():
         250,
         300,
         70,
-        "Real latent from encoded.pt",
-        ["int8 / 127 + dequantisation noise, clamp [-1, 1]"],
+        "Real latent from fine_encoded.pt",
+        ["int8 / 127 + dequantization noise, clamp [-1, 1]"],
         kind="data",
         body_size=11,
     )
@@ -650,7 +651,7 @@ def stage3_cgan():
         "Discriminator",
         [
             "code embedding + Linear(latent) per position",
-            "16 x TransformerLayer with 2D RoPE",
+            "16 x TransformerLayer with RoPE",
             "RMSNorm -> Linear(1) -> mean over positions",
             "out: one real/fake logit per image",
             "",

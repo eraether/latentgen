@@ -67,7 +67,7 @@ def main() -> None:
             else:
                 draw.rectangle((x - r, y - r, x + r, y + r), fill=color)
         px = img.load()
-        for yy in range(args.size):  # a soft gradient so neighbouring pixels are correlated
+        for yy in range(args.size):  # a soft gradient so neighboring pixels are correlated
             shade = int(40 * math.sin(yy / args.size * math.pi))
             for xx in range(args.size):
                 r, g, b = px[xx, yy]

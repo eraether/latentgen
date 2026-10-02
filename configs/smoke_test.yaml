@@ -18,7 +18,7 @@ data:
   image_dir: data/smoke/images
   image_size: 64              # 64 / patch 16 = 4x4 grid
   num_workers: 0
-  encoded_file: data/smoke/encoded.pt
+  encoded_dir: data/smoke/encoded
   encoded_device: cpu
 
 vqvae:

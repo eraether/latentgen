@@ -51,7 +51,7 @@ def test_shipped_configs_load(tmp_path):
         "smoke_test_audio.yaml",
         "examples/hf_ffhq128.yaml",
         "examples/hf_imagenet256.yaml",
-        "examples/hf_speech_commands.yaml",
+        "examples/hf_librispeech.yaml",
     ):
         cfg = load_config(root / name)
         assert isinstance(cfg, Config)

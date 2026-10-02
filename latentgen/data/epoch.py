@@ -27,21 +27,22 @@ class EpochTracker:
     def num_seen(self) -> int:
         return int(self.seen.sum())
 
-    def seen_ids(self) -> list[int]:
-        return self.seen.nonzero().squeeze(1).tolist()
+    def seen_ids(self) -> torch.Tensor:
+        """Ids seen this epoch as a CPU long tensor (what checkpoints store)."""
+        return self.seen.nonzero().squeeze(1).cpu()
 
     def set_seen(self, ids) -> None:
         self.seen.zero_()
-        ids = list(ids)
-        valid = [i for i in ids if 0 <= i < self.num_items]
-        if len(valid) != len(ids):
+        ids = torch.as_tensor(ids, dtype=torch.long).flatten().cpu()
+        valid = (ids >= 0) & (ids < self.num_items)
+        if not bool(valid.all()):
             print(
-                f"[epoch] {len(ids) - len(valid)} seen ids from the checkpoint are out of range "
+                f"[epoch] {int((~valid).sum())} seen ids from the checkpoint are out of range "
                 f"(dataset now has {self.num_items} items); ignoring them"
             )
-        ids = valid
-        if ids:
-            self.seen[torch.as_tensor(ids, dtype=torch.long, device=self.seen.device)] = True
+        ids = ids[valid]
+        if ids.numel():
+            self.seen[ids.to(self.seen.device)] = True
 
     def reset(self) -> None:
         self.seen.zero_()

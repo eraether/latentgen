@@ -84,8 +84,8 @@ def test_gan_shapes():
     assert disc(codes, fake).shape == (2, 1)
 
 
-def test_parameter_names_match_original_checkpoints():
-    """These names are what the original training scripts saved; renaming any breaks `convert_legacy.py`."""
+def test_parameter_names_are_stable():
+    """State-dict keys are the checkpoint format: renaming any of these breaks loading saved checkpoints."""
     vq = set(VQVAE(TINY_VQ).state_dict())
     for key in [
         "encoder.patch_proj.weight",
@@ -135,7 +135,7 @@ def test_parameter_names_match_original_checkpoints():
         assert key in d, key
 
 
-def test_parameter_order_matches_original_checkpoints():
+def test_parameter_order_is_stable():
     """Optimizer state is matched to parameters by POSITION, so registration order is part of the format too."""
     vq = [k for k, _ in VQVAE(TINY_VQ).named_parameters()]
     assert vq.index("decoder.layers.0.premlp_norm.weight") < vq.index("decoder.output_proj.weight")
@@ -186,3 +186,26 @@ def test_one_dimensional_codecs():
     assert recon.shape == x.shape and latents.shape == (2, 4, 1, 4)
     # 1-D models keep the same parameter names and order as 2-D ones (only the patch projection widths differ)
     assert [k for k, _ in vq.named_parameters()] == [k for k, _ in VQVAE(TINY_VQ).named_parameters()]
+
+
+def test_rope_is_one_dimensional_for_audio_grids():
+    """A 1 x T grid rotates every head dimension with the position (none wasted on the constant row)."""
+    from latentgen.nn.layers import RoPE
+
+    rope_1d = RoPE(head_dim=8, grid_h=1, grid_w=64, base=10000.0)
+    _, sin = rope_1d()
+    assert sin.shape == (64, 8) and bool((sin[1:].abs() > 0).all())
+    rope_2d = RoPE(head_dim=8, grid_h=4, grid_w=4)
+    _, sin = rope_2d()
+    assert bool((sin[:4, :2] == 0).all())  # first row: the row-index half does not rotate
+
+
+def test_audio_losses():
+    from latentgen.data import ImageStats
+    from latentgen.training.losses import psnr, stft_loss
+
+    x = torch.randn(2, 1, 4096) * 0.1
+    assert stft_loss(x, x).item() < 1e-5
+    assert stft_loss(x * 0.5, x).item() > 0.1
+    assert torch.isfinite(psnr(x * 0.9, x, ImageStats(mean=(0.0,), std=(1.0,))))
+    assert stft_loss(x[..., :1024], x[..., :1024] * 0.5).item() > 0  # short clips skip the long FFTs

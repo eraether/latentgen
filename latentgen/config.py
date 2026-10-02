@@ -44,15 +44,19 @@ class DataConfig:
 
     kind: str = "image"  # "image" (folder of pictures, 2-D) or "audio" (folder of 16-bit wav files, 1-D)
     image_dir: str = "data/images"  # folder of images -- or of .wav files when kind is "audio"
-    image_size: int = 512  # images are resized (shorter side) + centre-cropped to this
+    image_size: int = 512  # images are resized (shorter side) + center-cropped to this
     audio_length: int = 16384  # audio: clips are cropped / zero-padded to this many samples
     sample_rate: int = 16000  # audio: only used when writing generated .wav files
     image_extensions: tuple[str, ...] = IMAGE_EXTENSIONS
     stats_file: str | None = None  # JSON with per-channel mean/std; None = FFHQ defaults
     horizontal_flip: bool = True  # random horizontal flip augmentation
     num_workers: int = 4  # DataLoader workers for stages 1a / 1b
-    encoded_file: str = "data/encoded.pt"  # output of stage 1c, input of stages 2 and 3
-    encoded_device: str = "cpu"  # where the encoded dataset lives: "cpu" (saves VRAM) or "cuda"
+    # output of stage 1c, input of stages 2 and 3: coarse_encoded.pt (VQ codes) + fine_encoded.pt (AE latents)
+    encoded_dir: str = "data/encoded"
+    encoded_device: str = "cpu"  # in-memory datasets live here: "cpu" (saves VRAM) or "cuda" (a bit faster)
+    # "auto": stream chunked datasets from disk, keep single-file ones in memory; or force "memory" / "stream"
+    encoded_loading: str = "auto"
+    prefetch_batches: int = 16  # streaming: batches kept uploaded to the GPU ahead of the training loop
 
 
 @dataclass
@@ -113,6 +117,7 @@ class VQVAEStageConfig:
     cutover_step: int = 2200  # optimizer step at which the hypernetwork codebook is frozen into a plain table
     commitment_weight: float = 1.0
     loss_scale: float = 10.0  # inputs/targets are multiplied by this before smooth-L1 (see losses.py)
+    stft_loss_weight: float = 0.0  # audio only: weight of the multi-resolution STFT loss (see losses.py)
 
 
 # ----------------------------------------------------------------------------- stage 1b: AE
@@ -135,6 +140,7 @@ class AutoencoderStageConfig:
     model: AutoencoderModelConfig = field(default_factory=AutoencoderModelConfig)
     train: TrainConfig = field(default_factory=lambda: TrainConfig(batch_size=64, microbatch_size=8))
     loss_scale: float = 10.0
+    stft_loss_weight: float = 0.0  # audio only: weight of the multi-resolution STFT loss
 
 
 # ----------------------------------------------------------------------------- stage 1c: encode
@@ -147,6 +153,9 @@ class EncodeConfig:
     autoencoder_checkpoint: str = "latest"
     batch_size: int = 16
     include_flipped: bool = True  # also store the horizontally flipped version of every image
+    # fine latents larger than this are written in chunks (and streamed by stages 2/3) instead of one file
+    max_file_gb: float = 8.0
+    chunk_gb: float = 1.0  # size of one fine-latent chunk in the chunked layout
 
 
 # ----------------------------------------------------------------------------- stages 2 / 3: transformers
@@ -164,7 +173,8 @@ class TransformerModelConfig:
     intermediate_size: int = 2048
     num_layers: int = 24
     num_attention_heads: int = 16
-    rope_base: float = 100.0  # small base: the grid is only 32 wide, 10000 would waste most frequencies
+    # RoPE wavelength scale: ~ the longest axis. 100 for a 32x32 image grid; ~10000 for a 1 x 1024 audio sequence
+    rope_base: float = 100.0
     codebook_size: int | None = None
     grid_h: int | None = None
     grid_w: int | None = None
@@ -330,8 +340,9 @@ def _coerce(current: Any, value: Any, path: str) -> Any:
 def fill_from_data(model_cfg: TransformerModelConfig, **from_data: int) -> TransformerModelConfig:
     """Fill ``codebook_size`` / ``grid_h`` / ``grid_w`` / ``bottleneck_dim`` from the encoded dataset.
 
-    A value already set in the config (e.g. a converted legacy GAN whose embedding has 1024 rows) is
-    kept, as long as it is compatible with the data; a grid mismatch is an error.
+    A value already set in the config is kept as long as it is compatible with the data: a larger
+    ``codebook_size`` than the data needs is fine (some embedding rows simply go unused), a grid
+    mismatch is an error.
     """
     changes = {}
     for name, value in from_data.items():

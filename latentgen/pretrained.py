@@ -6,7 +6,7 @@ Loading *frozen* models from checkpoints for the stages that consume them.
     generate  needs all four                            -> + load_maskgit / load_generator
 
 Every loader returns ``(model in eval mode with no grads, ImageStats)`` where the stats are the
-normalisation the model was trained with, read from the checkpoint itself.
+normalization the model was trained with, read from the checkpoint itself.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def load_vqvae(path, device: torch.device, require_cutover: bool = True) -> tupl
     if require_cutover and not model.bottleneck.codebook.is_cut_over:
         raise SystemExit(
             f"{ckpt['path']}: this VQ-VAE has not cut over to a fixed codebook yet, so its codes are "
-            "re-randomised on every call and cannot be used downstream. Train past vqvae.cutover_step, "
+            "re-randomized on every call and cannot be used downstream. Train past vqvae.cutover_step, "
             "or resume it with --cutover-now."
         )
     print(f"Loaded VQ-VAE {ckpt['path']} (step {ckpt['progress']['step']})")

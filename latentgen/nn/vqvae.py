@@ -5,7 +5,7 @@ Stage 1a: VQ-VAE with a *hypernetwork codebook*.
 
 The twist is how the codebook is produced. Instead of a plain learned ``[K, D]`` table, a small
 transformer (:class:`HypernetworkCodebook`) maps ``K`` fresh Gaussian vectors to ``K`` codebook
-entries on **every forward pass**. Early in training this acts like a very strong regulariser:
+entries on **every forward pass**. Early in training this acts like a very strong regularizer:
 the codebook keeps moving, no entry can die, and the encoder is forced to be robust. Once the
 reconstructions are good (``cutover_step`` in the config), :meth:`HypernetworkCodebook.cutover`
 samples one codebook, stores it in ``learned_codebook`` and from then on the model behaves like a
@@ -82,7 +82,7 @@ class VectorQuantizer(nn.Module):
 
     @staticmethod
     def nearest_codes(z: torch.Tensor, codebook: torch.Tensor) -> torch.Tensor:
-        """``z: [B, D, H, W]``, ``codebook: [K, D]`` -> ``[B, H, W]`` long. Done in fp32 without materialising [B, K, D, H, W]."""
+        """``z: [B, D, H, W]``, ``codebook: [K, D]`` -> ``[B, H, W]`` long. Done in fp32 without materializing [B, K, D, H, W]."""
         B, D, H, W = z.shape
         with torch.autocast(device_type=z.device.type, enabled=False):  # autocast would make the matmul bf16
             flat = z.permute(0, 2, 3, 1).reshape(-1, D).float()  # [B*H*W, D]
@@ -139,6 +139,6 @@ class VQVAE(nn.Module):
 
     @torch.no_grad()
     def decode(self, codes: torch.Tensor) -> torch.Tensor:
-        """integer codes ``[B, H/p, W/p]`` -> images (still in normalised space)."""
+        """integer codes ``[B, H/p, W/p]`` -> images (still in normalized space)."""
         codebook = self.bottleneck.current_codebook(codes.device, torch.float32)
         return self.decoder(self.bottleneck.lookup(codes, codebook))

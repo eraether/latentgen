@@ -7,7 +7,7 @@ data:
   kind: image
   image_dir: data/ffhq128
   image_size: 128
-  encoded_file: data/ffhq128_encoded.pt
+  encoded_dir: data/ffhq128_encoded
 vqvae:
   train: {epochs: 10, batch_size: 64, microbatch_size: 16}
   cutover_step: 2200          # ~2 epochs of 70k images at batch 64

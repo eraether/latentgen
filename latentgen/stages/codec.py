@@ -11,13 +11,13 @@ import torch
 import torch.nn as nn
 
 from latentgen.config import Config, replace
-from latentgen.data import ImageBatches, ImageStats, waveform_image
+from latentgen.data import ImageBatches, ImageStats, audio_panel
 from latentgen.device import autocast
 from latentgen.nn import VQVAE, Autoencoder
 from latentgen.training.images import image_grid
 from latentgen.training.logging import MetricLogger
 from latentgen.training.loop import Stage
-from latentgen.training.losses import psnr, reconstruction_loss
+from latentgen.training.losses import psnr, reconstruction_loss, stft_loss
 from latentgen.training.manager import ModelManager
 
 
@@ -46,6 +46,7 @@ class ImageCodecStage(Stage):
             )
         ]
         self._last: tuple[torch.Tensor, torch.Tensor] | None = None  # (inputs, reconstructions) for images
+        self.stft_weight = self.stage_cfg.stft_loss_weight if audio else 0.0
 
     @property
     def model(self) -> nn.Module:
@@ -61,6 +62,10 @@ class ImageCodecStage(Stage):
         images, _ids = batch
         with autocast(self.device):
             recon, loss = self.forward_and_loss(images, logger)
+        if self.stft_weight:
+            spectral = stft_loss(recon, images)
+            logger.log("stft", spectral)
+            loss = loss + self.stft_weight * spectral
         (loss * scale).backward()
         logger.log("loss", loss)
         logger.log("psnr_db", psnr(recon, images, self.stats))
@@ -71,8 +76,8 @@ class ImageCodecStage(Stage):
             return None
         inputs, recon = self._last
         inputs, recon = self.stats.denormalize(inputs.float()), self.stats.denormalize(recon.float())
-        if self.cfg.data.kind == "audio":  # input waveform on top, reconstruction below
-            return torch.cat([waveform_image(inputs[0]), waveform_image(recon[0])], dim=-2)
+        if self.cfg.data.kind == "audio":  # input on top, reconstruction below (waveform + spectrogram each)
+            return audio_panel([inputs[0], recon[0]])
         return image_grid([inputs, recon], max_rows=2)
 
 

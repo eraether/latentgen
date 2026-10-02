@@ -15,7 +15,7 @@ Checkpoint format (``format_version: 2``)::
       "format_version": 2,
       "stage": "vqvae" | "autoencoder" | "maskgit" | "cgan",
       "config": {...full Config as a dict...},
-      "stats": {"mean": [...], "std": [...]},          # image normalisation
+      "stats": {"mean": [...], "std": [...]},          # image normalization
       "models": {<name>: {"model": state_dict, "optimizer": ..., "ema": ..., "step_count": int}},
       "progress": {"epoch": int, "step": int, "microbatches": int, "seen_ids": [...]},
       "stage_state": {...anything stage-specific...},
@@ -172,9 +172,6 @@ def load_checkpoint(path: str | Path, device: torch.device | str = "cpu") -> dic
     path = resolve_checkpoint(path)
     ckpt = torch.load(path, map_location=device, weights_only=False)
     if ckpt.get("format_version") != FORMAT_VERSION:
-        raise ValueError(
-            f"{path} is not a format-{FORMAT_VERSION} checkpoint. Checkpoints from the original scripts "
-            f"must be converted once: python scripts/convert_legacy.py checkpoint --help"
-        )
+        raise ValueError(f"{path} is not a format-{FORMAT_VERSION} checkpoint written by this code")
     ckpt["path"] = path
     return ckpt

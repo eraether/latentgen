@@ -1,10 +1,77 @@
-# latentgen — a four-stage latent generative pipeline (VQ-VAE + AE → MaskGIT → conditional GAN)
+<p align="center">
+  <img src="docs/showcase/hero.jpg" alt="latentgen, spelled out in generated faces" width="100%">
+</p>
 
-`latentgen` trains a generative model in four small, independent stages and samples new data with
-a MaskGIT-style transformer. It is **dataset-agnostic**: any folder of images (2-D) or of audio
-clips (1-D) works — FFHQ at 512×512 is just the configuration the original experiments used.
-Ready-made examples pull FFHQ, ImageNet and Speech Commands from Hugging Face
-(see [Examples](#15-examples-hugging-face-datasets)).
+<p align="center">
+  <b>Sketch in codes, paint in detail, redraft until it holds.</b><br>
+  A small, dataset-agnostic generative pipeline for images and audio:
+  a MaskGIT transformer samples a coarse grid of discrete codes, a conditional GAN paints the detail on top.
+</p>
+
+<p align="center">
+  <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-3776ab">
+  <img alt="pytorch" src="https://img.shields.io/badge/pytorch-2.4%2B-ee4c2c">
+  <img alt="data" src="https://img.shields.io/badge/data-images%20%7C%20audio-7c3aed">
+  <img alt="gpu" src="https://img.shields.io/badge/runs%20on-one%20GPU-16a34a">
+</p>
+
+<p align="center">
+  <a href="#what-it-makes">What it makes</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#1-quick-start">Quick start</a> ·
+  <a href="#3-the-pipeline-stage-by-stage">The stages</a> ·
+  <a href="#4-using-your-own-dataset">Your own data</a> ·
+  <a href="#14-audio-and-other-1-d-data">Audio</a>
+</p>
+
+---
+
+## What it makes
+
+Every face on this page was sampled from scratch by models trained with the
+[FFHQ-512 config](configs/ffhq512.yaml): no cherry-picking, no editing. The graphics are rendered by
+[`scripts/make_showcase.py`](scripts/make_showcase.py) straight from your checkpoints, so after training on
+your own data, one command rebuilds this page with your samples.
+
+<p align="center"><img src="docs/showcase/gallery.jpg" alt="a wall of generated samples" width="100%"></p>
+
+### Two decoders, one sketch
+
+The sampled code grid is a deliberately lossy sketch: 32×32 symbols from a 256-word vocabulary, 768×
+smaller than the image. Decoded directly it is faithful but soft; the conditional GAN instead predicts the
+rich latent the real photo would have had, and the autoencoder renders it sharp.
+
+<p align="center"><img src="docs/showcase/two_decoders.jpg" alt="codes, VQ-VAE decode and GAN decode side by side" width="100%"></p>
+
+### Drafted, then redrafted
+
+Sampling fills the empty grid one slot at a time, then repeatedly keeps a few percent of it and redraws
+everything else around those anchors. Early rounds change the person entirely; late rounds only polish.
+
+<p align="center"><img src="docs/showcase/refinement.jpg" alt="a sample after every refine round" width="100%"></p>
+
+### One sketch, many finishes
+
+The codes fix identity, pose and layout; the GAN's noise decides the rest. The same grid through eight
+noise draws:
+
+<p align="center"><img src="docs/showcase/variations.jpg" alt="one code grid decoded with eight noise draws" width="100%"></p>
+
+### Keep half, reimagine the rest
+
+MaskGIT is trained on partly hidden grids, so inpainting and outpainting need no extra training: keep
+some codes, mask the rest, fill (`latentgen.sampling.resample`).
+
+<p align="center"><img src="docs/showcase/inpainting.jpg" alt="half of a code grid kept, the other half redrawn five times" width="100%"></p>
+
+> Regenerate everything above from your own runs:
+> `python scripts/make_showcase.py --config configs/ffhq512.yaml` (250 samples by default; `--compose-only`
+> re-lays-out existing samples instantly; `--demo` previews the layouts with placeholder art, no models needed).
+
+## How it works
+
+`latentgen` trains a generative model in four small, independent stages. Everything is anchored on one
+token grid, so each stage is a modest model doing one job:
 
 ![pipeline overview](docs/pipeline_overview.svg)
 
@@ -13,13 +80,15 @@ Ready-made examples pull FFHQ, ImageNet and Speech Commands from Hugging Face
 | 0 (optional) | `scripts/00_compute_dataset_stats.py` | *(nothing)* per-channel mean/std of your images | image folder | `data/dataset_stats.json` |
 | 1a | `scripts/01a_train_vqvae.py` | image ⇄ 32×32 grid of discrete codes (vocab 256) | image folder | `runs/vqvae/<run>/` |
 | 1b | `scripts/01b_train_autoencoder.py` | image ⇄ 32×32×32 continuous latent | image folder | `runs/autoencoder/<run>/` |
-| 1c | `scripts/01c_encode_dataset.py` | *(nothing)* encodes every image once with both models | image folder + 1a + 1b | `data/encoded.pt` |
-| 2 | `scripts/02_train_maskgit.py` | the distribution of code grids | `data/encoded.pt` | `runs/maskgit/<run>/` |
-| 3 | `scripts/03_train_cgan.py` | codes → detailed latent (adds back what VQ lost) | `data/encoded.pt` | `runs/cgan/<run>/` |
+| 1c | `scripts/01c_encode_dataset.py` | *(nothing)* encodes every image once with both models | image folder + 1a + 1b | `data/encoded/{coarse,fine}_encoded.pt` |
+| 2 | `scripts/02_train_maskgit.py` | the distribution of code grids | `coarse_encoded.pt` | `runs/maskgit/<run>/` |
+| 3 | `scripts/03_train_cgan.py` | codes → detailed latent (adds back what VQ lost) | both encoded files | `runs/cgan/<run>/` |
 | 4 | `scripts/04_generate.py` | *(nothing)* samples code grids, decodes them two ways | all of the above | `generated/*.png` |
 
-Stages **1a and 1b** are independent of each other; so are **2 and 3**. Everything after 1c
-works on a few hundred MB of pre-encoded tensors and never touches the images again.
+Stages **1a and 1b** are independent of each other; so are **2 and 3**. Everything after 1c works on
+pre-encoded tensors and never touches the images again. Any folder of images (2-D) or audio clips (1-D)
+works; ready-made examples pull FFHQ, ImageNet and LibriSpeech from Hugging Face
+(see [Examples](#13-examples-hugging-face-datasets)).
 
 ---
 
@@ -28,25 +97,18 @@ works on a few hundred MB of pre-encoded tensors and never touches the images ag
 1. [Quick start](#1-quick-start)
 2. [Installation](#2-installation)
 3. [The pipeline, stage by stage](#3-the-pipeline-stage-by-stage)
-   - [Stage 1a — VQ-VAE with a hypernetwork codebook](#stage-1a--vq-vae-with-a-hypernetwork-codebook)
-   - [Stage 1b — continuous autoencoder](#stage-1b--continuous-autoencoder)
-   - [Stage 1c — encode the dataset](#stage-1c--encode-the-dataset)
-   - [Stage 2 — MaskGIT](#stage-2--maskgit)
-   - [Stage 3 — conditional GAN](#stage-3--conditional-gan)
-   - [Generation](#generation)
 4. [Using your own dataset](#4-using-your-own-dataset)
 5. [Configuration](#5-configuration)
 6. [Runs, checkpoints, resuming, TensorBoard](#6-runs-checkpoints-resuming-tensorboard)
 7. [VRAM and speed](#7-vram-and-speed)
 8. [Repository map](#8-repository-map)
 9. [Extending the code](#9-extending-the-code)
-10. [Migrating from the original scripts](#10-migrating-from-the-original-scripts)
-11. [Tests](#11-tests)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Design notes](#13-design-notes)
-14. [Glossary](#14-glossary)
-15. [Examples: Hugging Face datasets](#15-examples-hugging-face-datasets)
-16. [Audio and other 1-D data](#16-audio-and-other-1-d-data)
+10. [Tests](#10-tests)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Design notes](#12-design-notes)
+13. [Examples: Hugging Face datasets](#13-examples-hugging-face-datasets)
+14. [Audio and other 1-D data](#14-audio-and-other-1-d-data)
+15. [Glossary](#15-glossary)
 
 ---
 
@@ -64,6 +126,7 @@ bash scripts/run_pipeline.sh configs/smoke_test.yaml
 # the real thing: edit data.image_dir in configs/ffhq512.yaml (or copy configs/my_dataset.yaml), then
 bash scripts/run_pipeline.sh configs/ffhq512.yaml
 tensorboard --logdir runs                 # training curves, in another terminal
+python scripts/make_showcase.py           # then: rebuild the graphics at the top of this page from your models
 ```
 
 `run_pipeline.sh` just calls the six scripts in order with the same config (`--from 2` starts at
@@ -146,7 +209,7 @@ table, bypasses the hypernetwork, and resets the optimizer. From then on it is a
   it should stay high after cutover), the progress images (`input | reconstruction`).
 - Resuming a run from *before* the cutover past the cutover step cuts over right after the next
   optimizer step; `--cutover-now` forces it immediately on resume.
-- **Only a cut-over checkpoint can be used downstream.** Before cutover the codes are re-randomised on
+- **Only a cut-over checkpoint can be used downstream.** Before cutover the codes are re-randomized on
   every call, so stage 1c and generation refuse such a checkpoint with a clear error.
 
 ### Stage 1b — continuous autoencoder
@@ -160,24 +223,37 @@ in stage 1c, to produce the GAN's training targets. Loss: smooth-L1 only. Indepe
 
 ### Stage 1c — encode the dataset
 
-*Code:* `scripts/01c_encode_dataset.py`, `latentgen/data/encoded.py` · *Config:* `encode:`, `data.encoded_file`
+*Code:* `scripts/01c_encode_dataset.py`, `latentgen/data/encoded.py` · *Config:* `encode:`, `data.encoded_*`
 
 Runs every image (and, by default, its horizontal flip) through the frozen VQ-VAE and AE once
-and writes a single file:
+and writes two files to `data.encoded_dir`:
 
 ```
-data/encoded.pt
-  codes    int16 [V, N, 32, 32]       V = 2 (original, flipped), N = number of images
-  latents  int8  [V, N, 32, 32, 32]   AE latent stored as round(x * 127)
-  stats    mean/std used to normalise the images
+data/encoded/coarse_encoded.pt     read by stages 2 and 3
+  codes    int16 [N, V, 32, 32]       N = number of images, V = 2 (original, flipped)
+  stats    mean/std used to normalize the images
   meta     codebook_size, patch_size, image_size, file list, which checkpoints produced it
+data/encoded/fine_encoded.pt       read by stage 3 only
+  latents  int8  [N, V, 32, 32, 32]   AE latent stored as round(x * 127)
 ```
 
-For 70k FFHQ images that is ~290 MB of codes and ~4.6 GB of latents (layout `[V, N, C, H, W]`,
-channels before the grid). Stages 2 and 3 load it into **CPU RAM** (`data.encoded_device: cpu`,
-the default) or VRAM (`cuda`, a bit faster if you have the room) and gather random batches by
-index: no image decoding, no DataLoader workers, no disk reads after the initial load. `meta.files`
-maps row *i* back to the image file, handy when debugging your own dataset.
+For 70k FFHQ images that is ~290 MB of codes and ~4.6 GB of latents. MaskGIT only ever opens the
+coarse file. Stages 2 and 3 load what they need into **CPU RAM** (`data.encoded_device: cpu`, the
+default) or VRAM (`cuda`, a bit faster if you have the room) and gather random batches by index: no
+image decoding, no DataLoader workers, no disk reads after the initial load. `meta.files` maps row
+*i* back to the image file, handy when debugging your own dataset.
+
+**Datasets bigger than RAM.** When the fine latents would exceed `encode.max_file_gb` (8 GB), 1c
+switches to a chunked layout: the items are encoded in random order and written as ~`encode.chunk_gb`
+chunks (`coarse/00000.pt`, `fine/00000.pt`, …), and the two `.pt` files become small indexes. Stages
+2 and 3 then stream (`data.encoded_loading: auto`): a reader thread loads the next chunk while the
+current one is consumed, a batch thread gathers batches into pinned host buffers and uploads them on
+a side CUDA stream, and the training loop pops batches that are already on the GPU, so it never waits
+on the disk. Every epoch visits the chunks and their items in a fresh random order, leftovers are
+carried from one chunk to the next, and items are marked as seen only when the training loop
+receives them, so resuming mid-epoch works exactly as in memory. `data.prefetch_batches` sets how
+far ahead the loader runs; `data/stalls` and `data/stall_ms` in TensorBoard show whether it keeps up.
+`data.encoded_loading: memory` loads a chunked dataset whole if it fits after all.
 
 ### Stage 2 — MaskGIT
 
@@ -190,10 +266,10 @@ pre-RMSNorm). Training: each sample gets a random mask ratio in `[mask_ratio_min
 = [0.3, 1.0]; that fraction of positions is replaced by a learned `[MASK]` embedding and the
 model is trained with cross-entropy on the masked positions only.
 
-The grid size and vocabulary are **read from `encoded.pt`**, so the only architectural choices
+The grid size and vocabulary are **read from `coarse_encoded.pt`**, so the only architectural choices
 are `hidden_size`, `intermediate_size`, `num_layers`, `num_attention_heads`. The 30 % lower bound
 on the mask ratio matches generation, where every fill starts with 36–100 % of the grid masked
-(inside a fill the mask thins out further; those easier, low-density states are left to generalise).
+(inside a fill the mask thins out further; those easier, low-density states are left to generalize).
 
 The console shows a table of cross-entropy and accuracy **per mask-ratio bucket** (100–91 %,
 90–81 %, … 40–30 % masked). The high-ratio buckets measure global structure (hard, improves
@@ -202,7 +278,7 @@ slowly); the low ones measure local consistency (easy). TensorBoard gets the sam
 test.
 
 Optimizer: schedule-free AdamW with a 1000-step warm-up. Checkpoints hold the *averaged*
-weights (the ones to sample with); see [Design notes](#13-design-notes).
+weights (the ones to sample with); see [Design notes](#12-design-notes).
 
 ### Stage 3 — conditional GAN
 
@@ -247,7 +323,7 @@ decay, 100-step warm-up).
 3. **Decode** the final grid with the VQ-VAE (soft, faithful) and/or GAN + AE (sharp).
 
 No temperature, top-k or confidence ordering — on purpose (see design notes). ~5.2 k forward
-passes per batch, so generation takes a while; raise `generate.batch_size` to amortise.
+passes per batch, so generation takes a while; raise `generate.batch_size` to amortize.
 
 Output: one PNG per batch in `generate.out_dir`, each row `[VQ | GAN]` for one grid, plus the
 raw grids as `<name>.codes.pt`. `generate.num_images: 0` runs until Ctrl-C.
@@ -255,16 +331,16 @@ raw grids as `<name>.codes.pt`. `generate.num_images: 0` runs until Ctrl-C.
 ## 4. Using your own dataset
 
 1. **Put images in a folder.** Any names, any of png/jpg/jpeg/webp/bmp, sub-folders are searched.
-   Images are resized (shorter side) and centre-cropped to `data.image_size`. (Audio: a folder of
-   `.wav` files and `data.kind: audio`, see [§16](#16-audio-and-other-1-d-data). Hugging Face
-   datasets: [§15](#15-examples-hugging-face-datasets).)
+   Images are resized (shorter side) and center-cropped to `data.image_size`. (Audio: a folder of
+   `.wav` files and `data.kind: audio`, see [§14](#14-audio-and-other-1-d-data). Hugging Face
+   datasets: [§13](#13-examples-hugging-face-datasets).)
 2. **Copy the template:** `cp configs/my_dataset.yaml configs/cats.yaml` and edit
    `data.image_dir`, `data.image_size` (must be a multiple of `patch_size`; 256 gives a 16×16 grid
    and is a good start on a small GPU), and `project.runs_dir` (keeps this dataset's runs apart;
    every `*_checkpoint: latest` follows it automatically).
-3. **(Optional) normalisation stats:** `python scripts/00_compute_dataset_stats.py --config configs/cats.yaml`
+3. **(Optional) normalization stats:** `python scripts/00_compute_dataset_stats.py --config configs/cats.yaml`
    writes `data/dataset_stats.json`; set `data.stats_file` to it. The FFHQ defaults are fine for
-   any natural photos. The stats travel with every checkpoint and with `encoded.pt`, so
+   any natural photos. The stats travel with every checkpoint and with the encoded files, so
    downstream stages and generation never need the config for them.
 4. **Keep one `patch_size`.** `vqvae.model.patch_size` and `autoencoder.model.patch_size` must be
    equal (stage 1c checks); both default to 16.
@@ -277,8 +353,8 @@ A few things to know:
 
 - `data.image_size` must be a multiple of `patch_size` (checked at start-up).
 - The image id is the index in the sorted file list; it is what the epoch bookkeeping and
-  `encoded.pt` use. Adding or removing images between stage 1 and stage 1c is fine (1c
-  re-lists); between 1c and stages 2/3 it is irrelevant (they only read `encoded.pt`).
+  encoded files use. Adding or removing images between stage 1 and stage 1c is fine (1c
+  re-lists); between 1c and stages 2/3 it is irrelevant (they only read the encoded files).
 - Non-square or very large images are fine; they are cropped and resized on load. Loading is
   done by `num_workers` DataLoader processes; raise it if the GPU waits for data.
 - Grayscale images are converted to RGB.
@@ -310,8 +386,8 @@ python scripts/02_train_maskgit.py --config configs/ffhq512.yaml --set maskgit.m
 
 Unknown keys are an error that lists the valid keys, so typos cannot silently do nothing.
 
-Sections: `project` (runs dir, seed, compile, allow_cpu) · `data` (images, encoded file, where
-it lives) · `vqvae` / `autoencoder` / `maskgit` / `cgan` (each with `model`, `train` and
+Sections: `project` (runs dir, seed, compile, allow_cpu) · `data` (images, encoded files, how
+they are loaded) · `vqvae` / `autoencoder` / `maskgit` / `cgan` (each with `model`, `train` and
 stage-specific keys) · `encode` · `generate`. Every `train` section has the same keys:
 
 | key | meaning |
@@ -385,15 +461,16 @@ measurements; check yours with `nvidia-smi` and `timing/step_ms`:
 
 Knobs, in order of effect:
 
-1. **`microbatch_size`** — halve it, keep `batch_size`: identical maths, half the activation
+1. **`microbatch_size`** — halve it, keep `batch_size`: identical math, half the activation
    memory, slightly slower. The one knob that always works.
 2. **`activation_checkpointing: true`** — roughly divides activation memory by the number of
    layers at ~30 % extra compute.
-3. **`data.encoded_device: cpu`** (default) — keeps the 5 GB encoded dataset out of VRAM.
+3. **`data.encoded_device: cpu`** (default) — keeps the 5 GB encoded dataset out of VRAM
+   (MaskGIT only loads the 290 MB coarse file either way).
 4. Model size: `num_layers`, `hidden_size`. For a first run on a new dataset, the
    `my_dataset.yaml` sizes are plenty.
 5. `project.compile: false` — saves the compile-time memory spike and the slow first step, costs
-   ~30–50 % throughput afterwards.
+   ~30–50 % throughput afterward.
 
 With 1–3 the whole pipeline fits in **~4–6 GB**. Speed: `torch.compile` and FlashAttention are
 the big ones (both on by default; the attention kernel falls back automatically with a warning
@@ -407,9 +484,9 @@ latentgen/                     the library (import latentgen)
   device.py                  GPU selection, bf16 autocast, FlashAttention probe/fallback, torch.compile, seeding
   cli.py                     argparse + setup shared by the scripts
   pretrained.py              load frozen models from checkpoints (used by 1c, 3, generate)
-  sampling.py                MaskGIT fill/refine sampling + the two decode paths
+  sampling.py                MaskGIT fill/refine sampling, resampling (inpainting) + the two decode paths
   nn/
-    layers.py                Attention, SwiGLU, TransformerLayer, 2D RoPE, RMSNorm2D, MLPBlock2D, activation checkpointing
+    layers.py                Attention, SwiGLU, TransformerLayer, RoPE (axial / 1-D), RMSNorm2D, MLPBlock2D, activation checkpointing
     codec.py                 PatchEncoder / PatchDecoder shared by both image codecs
     vqvae.py                 HypernetworkCodebook, VectorQuantizer, VQVAE
     autoencoder.py           TanhBottleneck, Autoencoder
@@ -418,8 +495,9 @@ latentgen/                     the library (import latentgen)
   data/
     normalization.py         ImageStats (mean/std; FFHQ defaults; JSON load/save)
     images.py                image folder dataset + epoch-aware batch iterator (stages 1a/1b/1c)
-    audio.py                 wav folder dataset, wav read/write, waveform drawing (data.kind: audio)
-    encoded.py               the encoded dataset file: writer + CPU/GPU-resident batch sampler (stages 2/3)
+    audio.py                 wav folder dataset, wav read/write, waveform + spectrogram drawing (data.kind: audio)
+    encoded.py               coarse / fine encoded files: writer (single file or chunks), in-memory loader,
+                             background chunk-streaming loader (stages 2/3)
     epoch.py                 EpochTracker: which ids were seen this epoch (saved in checkpoints)
   training/
     loop.py                  Stage interface + Trainer (accumulation, logging, images, checkpoints, Ctrl-C)
@@ -429,20 +507,20 @@ latentgen/                     the library (import latentgen)
     checkpoint.py            checkpoint format, run directories, path resolution, tolerant state-dict merge
     logging.py               TensorBoard + console metrics without per-step GPU syncs
     images.py                progress-image grids, background PNG writer
-    losses.py                smooth-L1 reconstruction loss, PSNR
+    losses.py                smooth-L1 reconstruction loss, multi-resolution STFT loss (audio), PSNR
   stages/
     codec.py                 VQVAEStage, AutoencoderStage   (stages 1a, 1b)
     maskgit.py               MaskGITStage + per-mask-ratio buckets (stage 2)
     cgan.py                  CGANStage + discriminator scoring / phase schedule (stage 3)
 scripts/                     one thin CLI per stage (00 stats, 01a, 01b, 01c, 02, 03, 04), run_pipeline.sh / .ps1,
-                             make_smoke_data.py, convert_legacy.py
+                             make_smoke_data.py, make_showcase.py (the README graphics)
 configs/                     ffhq512.yaml (everything, commented), my_dataset.yaml (template), smoke_test*.yaml,
-                             examples/ (FFHQ-128, ImageNet-256, Speech Commands from Hugging Face)
+                             examples/ (FFHQ-128, ImageNet-256, LibriSpeech from Hugging Face)
 examples/prepare_hf_dataset.py  streams a Hugging Face image / audio dataset into the folder layout
-docs/                        the diagrams (SVG + PNG) and make_diagrams.py that draws them
-tests/                       pytest: config, checkpoint paths, model shapes & parameter names/order, training
-                             round-trips, sampling, end-to-end smoke run
-notes/original_notes.txt     the notes that came with the original scripts
+docs/                        the diagrams (SVG + PNG) and make_diagrams.py that draws them; showcase/ holds the
+                             README graphics and the two OFL fonts they are set in
+tests/                       pytest: config, checkpoint paths, model shapes & parameter names/order, encoded
+                             layouts & streaming, training round-trips, sampling, end-to-end smoke runs
 install.sh / install.ps1     installers; requirements.txt; pyproject.toml
 ```
 
@@ -474,79 +552,26 @@ Parameter and buffer names inside the models (`qkv_proj`, `fused_proj`, `premlp_
 `down_proj_global`, `lowres_quantized_code_embedding`, …) are the checkpoint format; renaming
 them breaks loading of existing checkpoints (`tests/test_models.py` guards the important ones).
 
-## 10. Migrating from the original scripts
-
-Model weights are byte-for-byte compatible (every parameter kept its name). Only the container
-format changed, so a one-time conversion is enough:
-
-| original | now |
-|---|---|
-| `train_stage_1a_vqvae_hyperparameter_codebook.py` | `scripts/01a_train_vqvae.py` + `latentgen/nn/vqvae.py` + `latentgen/stages/codec.py` |
-| `train_stage_1b_ae.py` | `scripts/01b_train_autoencoder.py` + `latentgen/nn/autoencoder.py` |
-| `build_dataset_stage_1c.py` | `scripts/01c_encode_dataset.py` + `latentgen/data/encoded.py` |
-| `train_stage_2_mask_git.py` | `scripts/02_train_maskgit.py` + `latentgen/nn/maskgit.py` + `latentgen/stages/maskgit.py` |
-| `train_stage_3_cgan.py` | `scripts/03_train_cgan.py` + `latentgen/nn/cgan.py` + `latentgen/stages/cgan.py` |
-| `inference.py` | `scripts/04_generate.py` + `latentgen/sampling.py` |
-| `models/*.pth` (one per model) | `runs/<stage>/<run>/checkpoints/step_*.pt` (one per stage; GAN G+D in one file) |
-| `data/all_vq_codes.pt` + `data/all_latents.pt` | `data/encoded.pt` |
-| hard-coded paths / sizes at the bottom of each script | `configs/*.yaml` |
-| `breakpoint()` to cut over the codebook | `vqvae.cutover_step` (automatic) or `--cutover-now` |
-| Ctrl-C → pdb | Ctrl-C → save + exit (`--pdb` for the old behaviour) |
-| `FFHQDataset` (70 000 fixed `%05d.png` names) | any folder of images |
-| `RandomizedCodebook` | `HypernetworkCodebook` (same weights, clearer name) |
+## 10. Tests
 
 ```bash
-python scripts/convert_legacy.py checkpoint --stage vqvae       --input models/vqvae_stage_1a_bcb5a61d_vq_32x32_epoch_5_step_6021_vqvae.pth
-python scripts/convert_legacy.py checkpoint --stage autoencoder --input models/ae_stage_1b_d13b7496_ae_32x32_epoch_7_step_7761_ae.pth
-python scripts/convert_legacy.py checkpoint --stage maskgit     --input models/6699378d_maskgit_24_epoch_106_step_58363_mask_git.pth
-python scripts/convert_legacy.py checkpoint --stage cgan \
-    --input         /mnt/f/models_trained/97f294f7_76410/97f294f7_gen_12_epoch_139_step_76410_generator.pth \
-    --discriminator /mnt/f/models_trained/97f294f7_76410/97f294f7_disc_16_epoch_139_step_76410_discriminator.pth
-python scripts/convert_legacy.py dataset --codes data/all_vq_codes.pt --latents data/all_latents.pt
-```
-
-Converted checkpoints land in `runs/<stage>/legacy/checkpoints/` together with a `config.yaml`
-(when `--output` is not given), so `runs/<stage>/latest` finds them, `scripts/04_generate.py`
-works unchanged, and `--resume runs/<stage>/legacy` continues training with the optimizer state
-(and the generator's EMA) carried over; `--drop-optimizer` starts the optimizer fresh. Optimizer
-state is matched to parameters *by position*, which is why the modules are registered in the
-original order (guarded by `tests/test_models.py`) and why a shape mismatch is detected before any
-weight is touched. The VQ-VAE/AE architecture is
-taken from `--config` (the originals did not store it); the converter strict-loads the weights
-into a model built from that config and tells you if they do not match. The original GAN had a
-1024-entry code embedding (its config default) although only 256 codes exist; the converter keeps
-that size and `fill_from_data` accepts a larger-than-needed vocabulary.
-
-Behavioural differences worth knowing: the VQ nearest-code search uses the expanded-distance
-formula in fp32 with autocast disabled (no `[B, K, D, H, W]` intermediate; far less memory; code
-assignments can differ from the original's bf16 element-wise distances only at near-ties) and the
-commitment loss is computed in fp32; stage-1 warm-up is schedule-free's own `warmup_steps` instead of an extra
-LambdaLR; the GAN's progress images are step-based (`image_every`) instead of wall-clock based;
-the MaskGIT bucket table is identical; the accumulation window left over at the end of an epoch is
-dropped instead of carried into the next epoch; the cutover codebook is sampled in fp32 outside
-autocast (the original sampled it in bf16).
-
-## 11. Tests
-
-```bash
-pytest tests/ -q                                       # ~2 min, CPU only
+pytest tests/ -q                                       # a few minutes, CPU only
 pytest tests/test_config.py tests/test_paths.py -q     # no torch needed
 ```
 
 - `test_config.py` — defaults, YAML, overrides, error messages, the shipped configs load.
-- `test_models.py` — shapes of all five models on tiny configs, cutover, and the parameter
-  names *and registration order* existing checkpoints depend on.
+- `test_models.py` — shapes of all five models on tiny configs, cutover, 1-D RoPE, the audio
+  losses, and the parameter names *and registration order* checkpoints depend on.
 - `test_paths.py` — `latest` / run-name / file resolution of `*_checkpoint` values (no torch needed).
-- `test_sampling.py` — fill-plan arithmetic, every slot gets filled.
+- `test_encoded.py` — both encoded layouts; the streaming loader serves every item exactly once per
+  epoch, carries leftovers across chunks and resumes without repeating items.
+- `test_sampling.py` — fill-plan arithmetic, every slot gets filled, refine-round callbacks, resampling.
 - `test_training.py` — a checkpoint holds the schedule-free *averaged* weights, resume round-trips
   (with an LR override), EMA round-trips.
-- `test_pipeline.py` — runs all six scripts on synthetic 64-px images in a temp dir, including a
-  resume across the cutover.
+- `test_pipeline.py` — runs every script on synthetic 64-px images and wav clips in a temp dir,
+  including a resume across the cutover and a forced chunked/streamed encode.
 
-The code in this repository was written and reviewed without a GPU at hand; the test suite is
-the first thing to run after installing.
-
-## 12. Troubleshooting
+## 11. Troubleshooting
 
 **`No CUDA GPU detected`** — install the matching PyTorch build (`./install.sh`). On WSL2 the
 Windows driver is enough; `nvidia-smi` must work inside WSL. `project.allow_cpu: true` only
@@ -564,13 +589,10 @@ worth it for long runs; for short experiments or on native Windows set `project.
 **`unknown config key(s)`** — a typo in the YAML or `--set`; the message lists the valid keys
 of that section.
 
-**`... is not a format-2 checkpoint`** — a file from the original scripts; run
-`scripts/convert_legacy.py checkpoint`.
-
 **`this VQ-VAE has not cut over`** — you pointed stage 1c or generation at a checkpoint from
 before `cutover_step`; train longer or `python scripts/01a_train_vqvae.py --resume <run> --cutover-now`.
 
-**Stage 2/3 slow to start** — the encoded file is being read; with `encoded_device: cuda` it is
+**Stage 2/3 slow to start** — the encoded files are being read; with `encoded_device: cuda` it is
 also copied to the GPU. ~10 s for FFHQ.
 
 **MaskGIT samples are garbage** — look at the bucket table: the 100–91 % bucket must get well
@@ -586,7 +608,7 @@ misleading you (they lag by ~700 steps).
 **Reproducibility** — set `project.seed`; note that `torch.compile`, bf16 and CUDA kernels are
 not bit-exact across runs anyway.
 
-## 13. Design notes
+## 12. Design notes
 
 *Why MLP-only image codecs?* Every token is processed independently except for one 3×3 conv in
 the decoder. That makes the encoder's job purely local (good for a VQ bottleneck: each code
@@ -597,9 +619,9 @@ global reasoning to the transformers that work on the grid.
 failure. Regenerating the codebook from noise every step makes collapse impossible — there is
 no fixed entry to collapse onto — and forces the encoder to produce well-spread features. The
 cutover then gives the usual benefits of a fixed table (stable codes for stage 1c, learnable
-entries). The original notes record 24.4 dB PSNR at cutover and 25.2 dB after further training.
+entries). On FFHQ the VQ-VAE reached 24.4 dB PSNR at cutover (2 epochs) and 25.2 dB after 5 epochs.
 
-*Why both a VQ-VAE and a continuous AE?* The discrete codes make the generative modelling
+*Why both a VQ-VAE and a continuous AE?* The discrete codes make the generative modeling
 tractable (MaskGIT); the continuous latent makes the output sharp (GAN + AE decoder). The GAN
 is conditioned on the codes, so the two paths always agree on layout and the GAN only has to
 add detail — a far easier task than unconditional image synthesis.
@@ -627,7 +649,58 @@ converted to floats only at log time; codebook usage is counted with a `scatter_
 per step. The only forced syncs per step are the `isfinite(grad_norm)` check and, in the GAN, that
 accuracy read. This is what lets the small models here run at thousands of samples per second.
 
-## 14. Glossary
+## 13. Examples: Hugging Face datasets
+
+`examples/prepare_hf_dataset.py` streams any Hugging Face dataset into the plain folder layout the
+pipeline reads (needs `pip install "datasets[audio]"`, nothing else changes). Three ready-made
+configs live in `configs/examples/`:
+
+| example | prepare | train |
+|---|---|---|
+| FFHQ 128 px (70k faces, small and fast) | `python examples/prepare_hf_dataset.py images --dataset nuwandaa/ffhq128 --out data/ffhq128 --size 128` | `bash scripts/run_pipeline.sh configs/examples/hf_ffhq128.yaml` |
+| ImageNet-1k 256 px (gated: accept the terms on the dataset page, then `huggingface-cli login`); big enough to be chunked and streamed | `python examples/prepare_hf_dataset.py images --dataset ILSVRC/imagenet-1k --split train --out data/imagenet256 --size 256` | `bash scripts/run_pipeline.sh configs/examples/hf_imagenet256.yaml` |
+| LibriSpeech (100k clips of 98304 samples = 6.1 s of speech at 16 kHz, audio) | `python examples/prepare_hf_dataset.py audio --dataset openslr/librispeech_asr --config clean --split train.360 --out data/librispeech --segment-length 98304 --min-rms 0.005 --max-items 100000` | `bash scripts/run_pipeline.sh configs/examples/hf_librispeech.yaml` |
+
+`--max-items` stops the stream early, so you can try a dataset on a few thousand items first.
+Any other dataset works the same way: `--dataset <id> [--config <name>] [--column <image or audio column>]`.
+For audio, `--segment-length` cuts long recordings into back-to-back clips of exactly that many
+samples and `--min-rms` drops silent ones. Each example config only overrides what differs from the
+defaults and says why in its comments — they double as a worked answer to "how do I size this for
+my data?".
+
+## 14. Audio and other 1-D data
+
+Set `data.kind: audio` and the **same four stages run one-dimensionally**. The worked example is
+[`configs/examples/hf_librispeech.yaml`](configs/examples/hf_librispeech.yaml): ~100k clips of 98304
+samples (6.1 s at 16 kHz).
+
+- `data.image_dir` is a folder of 16-bit PCM `.wav` files (the key name is shared with images);
+  clips are cropped / zero-padded to `data.audio_length` samples and loaded with the standard
+  library (`latentgen/data/audio.py`), no audio dependency.
+- The codecs (`latentgen/nn/codec.py`) fold `patch_size` neighboring samples into channels instead
+  of `patch_size × patch_size` pixels and carry the signal through the pipeline as a grid with
+  height 1. In the LibriSpeech config, 98304 samples / patch 96 = a `1 × 1024` sequence of VQ codes
+  (1024-word vocabulary) plus a `16 × 1 × 1024` fine latent: the token count of a 32×32 image, so
+  MaskGIT and the GAN cost the same as on FFHQ-512.
+- **Positions are 1-D.** On a `1 × T` grid, RoPE rotates every head dimension with the position
+  instead of splitting them between a row and a column axis (the row is always 0, so the axial
+  layout would waste half of each head). The base must match the length: the image default of 100
+  suits a 32-wide axis, a 1024-long sequence wants ~10000 (`rope_base: 10000.0` in the example).
+- **Spectral loss.** A sample-wise loss alone lets a codec trade high frequencies for a small error,
+  which sounds muffled. `vqvae.stft_loss_weight` / `autoencoder.stft_loss_weight` add a
+  multi-resolution STFT loss (spectral convergence + log-magnitude, `training/losses.py`).
+- Augmentation is polarity inversion (the audio analog of a horizontal flip); progress images show
+  waveform + spectrogram for real / reconstructed / generated clips; `scripts/04_generate.py` writes
+  a `.wav` for every sample and decoder plus a waveform / spectrogram PNG;
+  `scripts/00_compute_dataset_stats.py` computes a single-channel mean/std.
+- `configs/smoke_test_audio.yaml` + `python scripts/make_smoke_data.py --audio` is the 1-D smoke
+  test (`tests/test_pipeline.py` runs it too).
+
+Other 1-D signals (sensor traces, EEG, …) only need a loader that returns `[1, T]` tensors;
+multi-channel 1-D data additionally needs `channels` in the codec configs (filled from
+`data.kind` today — see `ImageCodecStage.__init__`).
+
+## 15. Glossary
 
 - **token / position / slot** — one cell of the 32×32 grid.
 - **code** — the integer (0..255) a VQ-VAE assigns to a token; **code grid** — the `[32, 32]` array.
@@ -639,42 +712,3 @@ accuracy read. This is what lets the small models here run at thousands of sampl
 - **micro-batch** — the samples in one forward/backward; **batch** — the samples in one optimizer step.
 - **EMA** — exponential moving average of the generator's weights; smoother than the live weights.
 - **run** — one invocation of a training script and its directory `runs/<stage>/<run_name>/`.
-
-## 15. Examples: Hugging Face datasets
-
-`examples/prepare_hf_dataset.py` streams any Hugging Face dataset into the plain folder layout the
-pipeline reads (needs `pip install "datasets[audio]"`, nothing else changes). Three ready-made
-configs live in `configs/examples/`:
-
-| example | prepare | train |
-|---|---|---|
-| FFHQ 128 px (70k faces, small and fast) | `python examples/prepare_hf_dataset.py images --dataset nuwandaa/ffhq128 --out data/ffhq128 --size 128` | `bash scripts/run_pipeline.sh configs/examples/hf_ffhq128.yaml` |
-| ImageNet-1k 256 px (gated: accept the terms on the dataset page, then `huggingface-cli login`) | `python examples/prepare_hf_dataset.py images --dataset ILSVRC/imagenet-1k --split train --out data/imagenet256 --size 256 --max-items 200000` | `bash scripts/run_pipeline.sh configs/examples/hf_imagenet256.yaml` |
-| Speech Commands (1-s spoken words, 16 kHz, audio) | `python examples/prepare_hf_dataset.py audio --dataset google/speech_commands --config v0.02 --out data/speech_commands` | `bash scripts/run_pipeline.sh configs/examples/hf_speech_commands.yaml` |
-
-`--max-items` stops the stream early, so you can try a dataset on a few thousand items first.
-Any other dataset works the same way: `--dataset <id> [--config <name>] [--column <image or audio column>]`.
-Each example config only overrides what differs from the defaults and says why in its comments —
-they double as a worked answer to "how do I size this for my data?".
-
-## 16. Audio and other 1-D data
-
-Set `data.kind: audio` and the **same four stages run one-dimensionally**:
-
-- `data.image_dir` is a folder of 16-bit PCM `.wav` files (the key name is shared with images);
-  clips are cropped / zero-padded to `data.audio_length` samples and loaded with the standard
-  library (`latentgen/data/audio.py`), no audio dependency.
-- The codecs (`latentgen/nn/codec.py`) fold `patch_size` neighbouring samples into channels
-  instead of `patch_size × patch_size` pixels, and carry the signal through the pipeline as a
-  grid with height 1: a 16384-sample clip becomes a `1 × 1024` grid of VQ codes plus a
-  `32 × 1 × 1024` fine latent — exactly the token count of a 32×32 image, so MaskGIT and the
-  GAN need no changes at all (`grid_h = 1`).
-- Augmentation is polarity inversion (the audio analogue of a horizontal flip); progress images
-  draw waveforms; `scripts/04_generate.py` writes `.wav` files for every sample and decoder plus
-  a waveform PNG; `scripts/00_compute_dataset_stats.py` computes a single-channel mean/std.
-- `configs/smoke_test_audio.yaml` + `python scripts/make_smoke_data.py --audio` is the 1-D
-  smoke test (`tests/test_pipeline.py` runs it too).
-
-Other 1-D signals (sensor traces, EEG, …) only need a loader that returns `[1, T]` tensors;
-multi-channel 1-D data additionally needs `channels` in the codec configs (filled from
-`data.kind` today — see `ImageCodecStage.__init__`).

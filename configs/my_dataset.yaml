@@ -10,7 +10,7 @@ data:
   image_dir: /path/to/your/images     # <-- any folder of png / jpg / webp (searched recursively)
   image_size: 256                     # <-- 256 is a good start on a small GPU (patch 16 -> 16x16 grid)
   stats_file: null                    # run scripts/00_compute_dataset_stats.py and put its JSON here (optional)
-  encoded_file: data/my_dataset_encoded.pt
+  encoded_dir: data/my_dataset_encoded
   encoded_device: cpu
 
 project:

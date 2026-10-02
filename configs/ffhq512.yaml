@@ -1,5 +1,5 @@
 # =============================================================================================
-#  FFHQ 512x512 -- the settings the original scripts were run with.
+#  FFHQ 512x512 -- the reference configuration; every key is listed and commented.
 #
 #  Every key here has a default in latentgen/config.py; a config file only needs to list what you
 #  change. Override anything from the command line:  --set vqvae.train.epochs=3 data.image_dir=...
@@ -15,12 +15,13 @@ project:
 
 data:
   image_dir: /mnt/f/ffhq_diffusion/ffhq512   # <-- folder of images (recursive, any names)
-  image_size: 512                            # resize + centre-crop to this; must be a multiple of patch_size
+  image_size: 512                            # resize + center-crop to this; must be a multiple of patch_size
   stats_file: null                           # null = FFHQ mean/std; or data/dataset_stats.json from scripts/00_...
   horizontal_flip: true
   num_workers: 4                             # image-loading workers for stages 1a / 1b / 1c
-  encoded_file: data/encoded.pt              # written by stage 1c, read by stages 2 and 3
+  encoded_dir: data/encoded                  # stage 1c writes coarse_encoded.pt + fine_encoded.pt here
   encoded_device: cpu                        # keep the encoded dataset in CPU RAM (cpu) or VRAM (cuda)
+  encoded_loading: auto                      # auto: stream chunked datasets from disk, keep single files in memory
 
 # ---------------------------------------------------------------- stage 1a: VQ-VAE (16 M params)
 vqvae:
@@ -72,6 +73,8 @@ encode:
   autoencoder_checkpoint: latest
   batch_size: 16
   include_flipped: true                          # store the mirrored image too (free augmentation)
+  max_file_gb: 8.0                               # bigger fine latents are written as ~chunk_gb chunks and streamed
+  chunk_gb: 1.0
 
 # ---------------------------------------------------------------- stage 2: MaskGIT (over codes)
 maskgit:

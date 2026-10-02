@@ -5,7 +5,7 @@ Stage 3 -- train the conditional GAN that maps VQ codes to a detailed AE latent.
     python scripts/03_train_cgan.py --config configs/ffhq512.yaml
     python scripts/03_train_cgan.py --resume runs/cgan/latest
 
-Reads data.encoded_file (both codes and latents). The frozen autoencoder (cgan.autoencoder_checkpoint)
+Reads both coarse_encoded.pt and fine_encoded.pt from data.encoded_dir. The frozen autoencoder (cgan.autoencoder_checkpoint)
 is only used to decode progress images: runs/cgan/<run>/images/ shows real | generator | EMA generator.
 Independent of stage 2: trains at the same time as MaskGIT if you have the GPU for it.
 """
@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from latentgen.cli import build_parser, checkpoint_for, choose_run_dir, load_cfg, setup  # noqa: E402
 from latentgen.config import fill_from_data  # noqa: E402
-from latentgen.data import EncodedDataset  # noqa: E402
+from latentgen.data import open_encoded  # noqa: E402
 from latentgen.pretrained import load_autoencoder  # noqa: E402
 from latentgen.stages import CGANStage  # noqa: E402
 from latentgen.training import Trainer  # noqa: E402
@@ -29,7 +29,14 @@ def main() -> None:
     cfg = load_cfg(args)
     device = setup(cfg)
 
-    data = EncodedDataset(cfg.data.encoded_file, device, storage=cfg.data.encoded_device, need_latents=True)
+    data = open_encoded(
+        cfg.data.encoded_dir,
+        device,
+        need_latents=True,
+        storage=cfg.data.encoded_device,
+        loading=cfg.data.encoded_loading,
+        prefetch_batches=cfg.data.prefetch_batches,
+    )
     shape = dict(
         codebook_size=data.codebook_size,
         grid_h=data.grid_h,

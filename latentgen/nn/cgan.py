@@ -1,7 +1,7 @@
 """
 Stage 3: conditional GAN that turns coarse VQ codes into a detailed AE latent.
 
-Both networks are transformers over the ``H x W`` token grid with 2D RoPE.
+Both networks are transformers over the ``H x W`` token grid with RoPE (axial for images, 1-D for audio).
 
 * :class:`Generator`: ``codes [B, H, W]`` (+ per-position Gaussian noise injected internally)
   -> ``latent [B, bottleneck_dim, H, W]`` in ``[-1, 1]`` (``tanh``, matching the AE).
@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 
 from latentgen.config import TransformerModelConfig
-from latentgen.nn.layers import RoPE2D, run_layers, transformer_stack
+from latentgen.nn.layers import RoPE, run_layers, transformer_stack
 
 
 class Generator(nn.Module):
@@ -25,7 +25,7 @@ class Generator(nn.Module):
         self.cfg = cfg
         self.checkpointing = checkpointing
         self.lowres_quantized_code_embedding = nn.Embedding(cfg.codebook_size, cfg.hidden_size)
-        self.rope = RoPE2D(cfg.hidden_size // cfg.num_attention_heads, cfg.grid_h, cfg.grid_w, cfg.rope_base)
+        self.rope = RoPE(cfg.hidden_size // cfg.num_attention_heads, cfg.grid_h, cfg.grid_w, cfg.rope_base)
         self.layers = transformer_stack(
             cfg.num_layers, cfg.hidden_size, cfg.intermediate_size, cfg.num_attention_heads
         )
@@ -50,7 +50,7 @@ class Discriminator(nn.Module):
         self.cfg = cfg
         self.checkpointing = checkpointing
         self.lowres_quantized_code_embedding = nn.Embedding(cfg.codebook_size, cfg.hidden_size)
-        self.rope = RoPE2D(cfg.hidden_size // cfg.num_attention_heads, cfg.grid_h, cfg.grid_w, cfg.rope_base)
+        self.rope = RoPE(cfg.hidden_size // cfg.num_attention_heads, cfg.grid_h, cfg.grid_w, cfg.rope_base)
         self.highres_code_proj = nn.Linear(cfg.bottleneck_dim, cfg.hidden_size, bias=False)
         self.layers = transformer_stack(
             cfg.num_layers, cfg.hidden_size, cfg.intermediate_size, cfg.num_attention_heads

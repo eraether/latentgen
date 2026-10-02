@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from latentgen.config import TransformerModelConfig
-from latentgen.nn.layers import RoPE2D, run_layers, transformer_stack
+from latentgen.nn.layers import RoPE, run_layers, transformer_stack
 
 
 class MaskGIT(nn.Module):
@@ -24,7 +24,7 @@ class MaskGIT(nn.Module):
         self.code_embedding = nn.Embedding(cfg.codebook_size, cfg.hidden_size)
         # masked positions are *replaced* by this vector (not added to it), so the true code never leaks
         self.mask_token = nn.Parameter(torch.randn(cfg.hidden_size))
-        self.rope = RoPE2D(cfg.hidden_size // cfg.num_attention_heads, cfg.grid_h, cfg.grid_w, cfg.rope_base)
+        self.rope = RoPE(cfg.hidden_size // cfg.num_attention_heads, cfg.grid_h, cfg.grid_w, cfg.rope_base)
         self.layers = transformer_stack(
             cfg.num_layers, cfg.hidden_size, cfg.intermediate_size, cfg.num_attention_heads
         )

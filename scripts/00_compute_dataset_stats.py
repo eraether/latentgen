@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 """
-Optional stage 0 -- per-channel mean / std of your image (or audio) folder, for normalisation.
+Optional stage 0 -- per-channel mean / std of your image (or audio) folder, for normalization.
 
     python scripts/00_compute_dataset_stats.py --config configs/my_dataset.yaml
     python scripts/00_compute_dataset_stats.py --set data.image_dir=/path/to/images --out data/my_stats.json
 
 Then set `data.stats_file: data/my_stats.json` in the config. Skipping this and using the FFHQ
-defaults is fine for any natural-image dataset; it only matters when the colour statistics are
+defaults is fine for any natural-image dataset; it only matters when the color statistics are
 far from a typical photo (e.g. medical scans, line art).
 """
 

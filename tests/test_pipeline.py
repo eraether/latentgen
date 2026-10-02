@@ -37,7 +37,7 @@ def common(workdir: Path) -> list[str]:
         "project.allow_cpu=true",
         f"project.runs_dir={workdir / 'runs'}",
         f"data.image_dir={workdir / 'data/smoke/images'}",
-        f"data.encoded_file={workdir / 'data/encoded.pt'}",
+        f"data.encoded_dir={workdir / 'data/encoded'}",
         f"generate.out_dir={workdir / 'generated'}",
     ]
 
@@ -67,8 +67,10 @@ def test_stage_1c_encode(workdir):
     run("01c_encode_dataset.py", *common(workdir), cwd=workdir)
     import torch
 
-    blob = torch.load(workdir / "data/encoded.pt", weights_only=False)
-    assert blob["codes"].shape == (2, 32, 4, 4) and blob["latents"].shape == (2, 32, 4, 4, 4)
+    coarse = torch.load(workdir / "data/encoded/coarse_encoded.pt", weights_only=False)
+    fine = torch.load(workdir / "data/encoded/fine_encoded.pt", weights_only=False)
+    assert coarse["layout"] == "single" and coarse["codes"].shape == (32, 2, 4, 4)
+    assert fine["latents"].shape == (32, 2, 4, 4, 4)
 
 
 def test_stage_2_maskgit(workdir):
@@ -77,6 +79,26 @@ def test_stage_2_maskgit(workdir):
 
 def test_stage_3_cgan(workdir):
     run("03_train_cgan.py", *common(workdir), "cgan.train.epochs=1", cwd=workdir)
+
+
+def test_chunked_encode_and_streaming(workdir):
+    """Force the chunked layout (tiny chunks) and train stages 2 and 3 from the stream."""
+    chunked = [f"data.encoded_dir={workdir / 'data/encoded_chunked'}"]
+    run(
+        "01c_encode_dataset.py",
+        *common(workdir),
+        *chunked,
+        "encode.max_file_gb=0",
+        "encode.chunk_gb=1e-6",
+        cwd=workdir,
+    )
+    import torch
+
+    coarse = torch.load(workdir / "data/encoded_chunked/coarse_encoded.pt", weights_only=False)
+    assert coarse["layout"] == "chunked" and len(coarse["chunks"]) > 1
+    assert sorted(torch.cat(coarse["chunk_ids"]).tolist()) == list(range(32))
+    run("02_train_maskgit.py", *common(workdir), *chunked, "maskgit.train.epochs=2", cwd=workdir)
+    run("03_train_cgan.py", *common(workdir), *chunked, "cgan.train.epochs=2", cwd=workdir)
 
 
 def test_generate(workdir):
@@ -95,7 +117,7 @@ def test_audio_pipeline_end_to_end(tmp_path_factory):
         "project.allow_cpu=true",
         f"project.runs_dir={d / 'runs'}",
         f"data.image_dir={d / 'data/smoke/audio'}",
-        f"data.encoded_file={d / 'data/encoded.pt'}",
+        f"data.encoded_dir={d / 'data/encoded'}",
         f"generate.out_dir={d / 'generated'}",
     ]
     for script, extra in [

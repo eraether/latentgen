@@ -2,7 +2,7 @@
 Stage 1 input: a plain folder of images.
 
 Any folder works -- file names do not matter, sub-folders are searched, and every image is
-resized (shorter side) and centre-cropped to ``image_size``. Items are addressed by their index in
+resized (shorter side) and center-cropped to ``image_size``. Items are addressed by their index in
 the sorted file list, which is what the epoch tracker and the encoded dataset use as the image id.
 """
 
@@ -37,7 +37,7 @@ def list_images(image_dir: str | Path, extensions=IMAGE_EXTENSIONS) -> list[Path
 
 
 def load_image(path: str | Path, image_size: int | None = None) -> torch.Tensor:
-    """Read an image as a ``[3, H, W]`` float tensor in ``[0, 1]`` (resized + centre-cropped if asked)."""
+    """Read an image as a ``[3, H, W]`` float tensor in ``[0, 1]`` (resized + center-cropped if asked)."""
     with Image.open(path) as img:
         img = img.convert("RGB")
         if image_size is not None and img.size != (image_size, image_size):
@@ -60,7 +60,7 @@ def to_pil(image: torch.Tensor) -> Image.Image:
 
 
 class ImageFolderDataset(Dataset):
-    """Yields ``(normalised image [3, S, S], index)``. Optional random horizontal flip."""
+    """Yields ``(normalized image [3, S, S], index)``. Optional random horizontal flip."""
 
     def __init__(
         self,

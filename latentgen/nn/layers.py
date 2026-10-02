@@ -4,13 +4,13 @@ Building blocks shared by all four models.
 Two families live here:
 
 * **Sequence blocks** (``[B, S, C]`` tensors) for the transformers: :class:`Attention`,
-  :class:`FusedSwiGLU`, :class:`TransformerLayer`, :class:`RoPE2D`.
+  :class:`FusedSwiGLU`, :class:`TransformerLayer`, :class:`RoPE`.
 * **Feature-map blocks** (``[B, C, H, W]`` tensors) for the convolutional-free image codecs:
   :class:`RMSNorm2D`, :class:`FusedSwiGLU2D`, :class:`MLPBlock2D`.
 
 Attribute names (``qkv_proj``, ``fused_proj``, ``premlp_norm`` ...) are part of the checkpoint
-format: they are what ``state_dict()`` keys are made of, and they match the original training
-scripts so old checkpoints still load. Rename with care.
+format: they are what ``state_dict()`` keys are made of, so renaming one breaks loading every
+checkpoint written before the rename. Rename with care.
 """
 
 from __future__ import annotations
@@ -38,29 +38,39 @@ class FusedSwiGLU(nn.Module):
         return self.down_proj(F.silu(gate) * up)
 
 
-class RoPE2D(nn.Module):
-    """Axial 2D rotary position embedding for a ``grid_h x grid_w`` token grid.
+class RoPE(nn.Module):
+    """Rotary position embedding for a ``grid_h x grid_w`` token grid.
 
-    Half of each head's dimensions rotate with the row index, the other half with the column
-    index, so attention can tell "two tokens up" from "two tokens left". The tables are
-    non-persistent buffers: they are rebuilt from the config and never stored in checkpoints.
+    * 2-D grids (images): axial RoPE -- half of each head's dimensions rotate with the row index,
+      the other half with the column index, so attention can tell "two tokens up" from "two tokens
+      left".
+    * 1-D sequences (audio, ``grid_h == 1``): every dimension rotates with the position. Using the
+      axial layout here would waste half of each head on a row index that is always 0.
+
+    ``base`` sets the longest wavelength: about the length of the longest axis is right, so ~100 for a
+    32-wide image grid and ~10000 for a 1024-long audio sequence. The tables are non-persistent
+    buffers: rebuilt from the config, never stored in checkpoints.
     """
 
     def __init__(self, head_dim: int, grid_h: int, grid_w: int, base: float = 100.0) -> None:
         super().__init__()
-        if head_dim % 4:
-            raise ValueError(f"head_dim={head_dim} must be divisible by 4 for 2D RoPE")
-        d_axis = head_dim // 2
-        inv_freq = 1.0 / (base ** (torch.arange(0, d_axis, 2, dtype=torch.float32) / d_axis))
-
-        ys, xs = torch.meshgrid(
-            torch.arange(grid_h, dtype=torch.float32),
-            torch.arange(grid_w, dtype=torch.float32),
-            indexing="ij",
-        )
-        freqs = torch.cat(
-            [ys.reshape(-1, 1) * inv_freq, xs.reshape(-1, 1) * inv_freq], dim=-1
-        )  # [S, head_dim/2]
+        one_d = grid_h == 1
+        if head_dim % (2 if one_d else 4):
+            raise ValueError(f"head_dim={head_dim} must be divisible by {2 if one_d else 4} for RoPE")
+        if one_d:
+            inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim))
+            freqs = torch.arange(grid_w, dtype=torch.float32)[:, None] * inv_freq  # [S, head_dim/2]
+        else:
+            d_axis = head_dim // 2
+            inv_freq = 1.0 / (base ** (torch.arange(0, d_axis, 2, dtype=torch.float32) / d_axis))
+            ys, xs = torch.meshgrid(
+                torch.arange(grid_h, dtype=torch.float32),
+                torch.arange(grid_w, dtype=torch.float32),
+                indexing="ij",
+            )
+            freqs = torch.cat(
+                [ys.reshape(-1, 1) * inv_freq, xs.reshape(-1, 1) * inv_freq], dim=-1
+            )  # [S, head_dim/2]
         emb = torch.cat([freqs, freqs], dim=-1)  # [S, head_dim]
         self.register_buffer("cos", emb.cos(), persistent=False)
         self.register_buffer("sin", emb.sin(), persistent=False)
@@ -83,7 +93,7 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
 
 
 class Attention(nn.Module):
-    """Multi-head non-causal self-attention with a fused QKV projection and optional 2D RoPE."""
+    """Multi-head non-causal self-attention with a fused QKV projection and optional RoPE."""
 
     def __init__(self, hidden_size: int, num_heads: int) -> None:
         super().__init__()
@@ -131,7 +141,7 @@ class TransformerLayer(nn.Module):
 class RMSNorm2D(nn.Module):
     """RMSNorm over the channel dimension of a ``[B, C, H, W]`` tensor.
 
-    ``nn.RMSNorm`` normalises the *last* dimension, which is wrong for NCHW feature maps.
+    ``nn.RMSNorm`` normalizes the *last* dimension, which is wrong for NCHW feature maps.
     The reduction is done in fp32 so it is stable under bf16 autocast.
     """
 

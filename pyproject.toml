@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "latentgen"
 version = "2.0.0"
-description = "Dataset-agnostic four-stage latent generative pipeline (images or audio): VQ-VAE + AE -> MaskGIT -> conditional GAN."
+description = "Sketch in codes, paint in detail: a dataset-agnostic latent generative pipeline for images and audio (VQ-VAE + AE -> MaskGIT -> conditional GAN)."
 readme = "README.md"
 requires-python = ">=3.10"
 # PyTorch is intentionally NOT listed here. Install the build that matches

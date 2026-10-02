@@ -1,0 +1,53 @@
+# =============================================================================================
+#  Audio: ~100k clips of ~100k samples each -- LibriSpeech read English speech, 16 kHz.
+#
+#    python examples/prepare_hf_dataset.py audio --dataset openslr/librispeech_asr --config clean \
+#        --split train.360 --out data/librispeech --sample-rate 16000 \
+#        --segment-length 98304 --min-rms 0.005 --max-items 100000
+#    bash scripts/run_pipeline.sh configs/examples/hf_librispeech.yaml
+#
+#  Every recording is cut into back-to-back 98304-sample clips (6.1 s), silent ones dropped. The same
+#  four stages then run one-dimensionally:
+#
+#    98304 samples / patch 96 = a 1 x 1024 sequence of coarse VQ codes (1024-word vocabulary, ~1.7 kbit/s)
+#                               + a 16 x 1 x 1024 fine latent (6x compression)
+#
+#  1024 tokens is the token count of a 32x32 image, so MaskGIT and the GAN cost the same as on FFHQ-512 --
+#  but the tokens form a line 1024 long instead of a 32x32 square, so RoPE runs in its 1-D mode with a
+#  base of 10000 (the image default of 100 is sized for a 32-wide axis and would alias far positions).
+#  The codecs add a multi-resolution STFT loss: a sample-wise loss alone sounds muffled.
+#  Generated clips are .wav files plus waveform / spectrogram PNGs (scripts/04_generate.py).
+# =============================================================================================
+project: {runs_dir: runs_librispeech}
+
+data:
+  kind: audio
+  image_dir: data/librispeech         # folder of .wav files (the key name is shared with images)
+  audio_length: 98304                 # samples per clip; must be a multiple of patch_size (96 * 1024)
+  sample_rate: 16000
+  stats_file: null                    # default mean 0 / std 0.1; or run scripts/00_compute_dataset_stats.py
+  horizontal_flip: true               # for audio: random polarity inversion
+  num_workers: 8
+  encoded_dir: data/librispeech_encoded   # ~0.4 GB coarse + ~3.3 GB fine for 100k clips: one file each
+
+vqvae:
+  model: {hidden_size: 512, intermediate_size: 2048, patch_size: 96, codebook_size: 1024, bottleneck_dim: 64}
+  train: {epochs: 12, batch_size: 64, microbatch_size: 32}
+  cutover_step: 3200                  # ~2 epochs of 100k clips at batch 64
+  stft_loss_weight: 1.0
+
+autoencoder:
+  model: {hidden_size: 512, intermediate_size: 2048, patch_size: 96, bottleneck_dim: 16}
+  train: {epochs: 12, batch_size: 64, microbatch_size: 32}
+  stft_loss_weight: 1.0
+
+maskgit:
+  model: {num_layers: 24, rope_base: 10000.0}
+  train: {epochs: 150, batch_size: 128, microbatch_size: 16}
+
+cgan:
+  generator:     {num_layers: 12, rope_base: 10000.0}
+  discriminator: {num_layers: 16, rope_base: 10000.0}
+  train: {epochs: 150, batch_size: 128, microbatch_size: 16}
+
+generate: {num_images: 16, batch_size: 4}
