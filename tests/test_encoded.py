@@ -37,7 +37,7 @@ def test_single_file_layout(tmp_path):
     assert isinstance(data, EncodedDataset)
     assert (data.num_items, data.num_variants, data.grid_h, data.grid_w, data.latent_dim) == (N, V, H, W, C)
     served = _epoch(data, 4)
-    assert len(served) == N // 4 and len(set(served)) == len(served)
+    assert len(served) == N // 4 * 4 and len(set(served)) == len(served)
     coarse_only = open_encoded(tmp_path, torch.device("cpu"), need_latents=False)
     assert coarse_only.latents is None and coarse_only.latent_dim is None
 

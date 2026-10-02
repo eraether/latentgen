@@ -190,6 +190,9 @@ class Trainer:
         if pop_timing is None:
             return
         timing = pop_timing()
+        if not getattr(self, "_data_warmed_up", False):  # the first window includes loading the first chunk
+            self._data_warmed_up = True
+            return
         for name, value in timing.items():
             self.logger.scalar(f"data/{name}", value, self.step)
         if timing["stalls"]:

@@ -93,7 +93,11 @@ class EncodedWriter:
         self._buffer: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []  # chunked layout
         self._buffered = 0
         self.chunks: list[dict] = []
-        for sub in ("coarse", "fine"):  # chunks of an earlier run would be orphaned (or worse, mixed in)
+        # remove an earlier run's output first: its chunks would be orphaned (or worse, mixed in), and an
+        # interrupted run must not leave an old index pointing at deleted chunks
+        for name in (COARSE_FILE, FINE_FILE):
+            (self.dir / name).unlink(missing_ok=True)
+        for sub in ("coarse", "fine"):
             if (self.dir / sub).is_dir():
                 shutil.rmtree(self.dir / sub)
         if chunk_items is not None:
@@ -128,6 +132,8 @@ class EncodedWriter:
 
     def finish(self, stats: ImageStats, meta: dict) -> dict:
         """Write the remaining chunk and both index / data files. Returns a short summary."""
+        if self.codes is None and not self.chunks and not self._buffered:
+            raise ValueError("nothing to write: no items were added")
         if self.chunk_items is None:
             item_shapes = (tuple(self.codes.shape[1:]), tuple(self.latents.shape[1:]))
         else:
@@ -499,7 +505,11 @@ class EncodedStream(_EncodedInfo):
         if cuda:
             torch.cuda.set_device(self.device)
             copy_stream = torch.cuda.Stream(device=self.device)
-        generator = torch.Generator().manual_seed(torch.initial_seed() + 1)
+        # a restart (resume, new batch size) continues with a fresh shuffle instead of replaying the first one
+        self._restarts = getattr(self, "_restarts", 0) + 1
+        generator = torch.Generator().manual_seed(
+            torch.initial_seed() + 7919 * self._restarts + self.tracker.num_seen()
+        )
         jobs = self._plan(seen if bool(seen.any()) else None, generator)
         reader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chunk_read")
         pending: deque = deque()

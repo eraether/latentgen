@@ -74,6 +74,10 @@ def generate(args: argparse.Namespace) -> None:
     g = cfg.generate
     if cfg.data.kind != "image":
         raise SystemExit("the showcase is laid out for images; for audio use scripts/04_generate.py")
+    if min(args.batch_size, args.count) < PAIR_SAMPLES:
+        raise SystemExit(
+            f"--batch-size and --count must be at least {PAIR_SAMPLES} (the extras reuse the first batch)"
+        )
     device = setup(cfg)
     maskgit, stats = load_maskgit(checkpoint_for(cfg, g.maskgit_checkpoint, "maskgit"), device)
     vqvae, _ = load_vqvae(checkpoint_for(cfg, g.vqvae_checkpoint, "vqvae"), device)
@@ -129,7 +133,8 @@ def generate(args: argparse.Namespace) -> None:
             )
             save(decode_vq(codes[:1], vqvae, stats), ["variations/vq.png"])
             H, W = codes.shape[1:]
-            for s, region in enumerate(("top", "left")):
+            regions = ("top", "left")[: min(2, b)]
+            for s, region in enumerate(regions):
                 keep = torch.zeros(INPAINT_DRAWS, H, W, dtype=torch.bool, device=device)
                 if region == "top":
                     keep[:, : H // 2] = True
@@ -142,7 +147,7 @@ def generate(args: argparse.Namespace) -> None:
                     decode_gan(redrawn, generator, autoencoder, stats),
                     [f"inpaint/{s}_{k}.png" for k in range(INPAINT_DRAWS)],
                 )
-            meta["inpaint_regions"] = ["top", "left"]
+            meta["inpaint_regions"] = list(regions)
         made += b
         bar.update(b)
     bar.close()

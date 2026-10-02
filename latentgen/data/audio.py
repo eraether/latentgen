@@ -122,7 +122,8 @@ def spectrogram_image(
         x, n_fft, hop_length=n_fft // 4, window=torch.hann_window(n_fft), return_complex=True
     ).abs()
     db = 20 * spec.clamp_min(1e-5).log10()
-    db = (db - db.max()).clamp_min(floor_db) / -floor_db + 1  # [0, 1], 0 = floor_db below the peak
+    ref = max(float(db.max()), -40.0)  # a silent clip stays dark instead of being stretched into noise
+    db = (db - ref).clamp(floor_db, 0) / -floor_db + 1  # [0, 1], 0 = floor_db below the reference
     img = torch.nn.functional.interpolate(db.flip(0)[None, None], size=(height, width), mode="bilinear")[0, 0]
     return colorize(img)
 
