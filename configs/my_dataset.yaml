@@ -1,0 +1,39 @@
+# =============================================================================================
+#  Template for your own images. Everything not listed here keeps the FFHQ-512 defaults
+#  (latentgen/config.py). The three things that usually change are marked  <--
+#
+#      cp configs/my_dataset.yaml configs/cats.yaml   # then edit, then:
+#      bash scripts/run_pipeline.sh configs/cats.yaml
+# =============================================================================================
+
+data:
+  image_dir: /path/to/your/images     # <-- any folder of png / jpg / webp (searched recursively)
+  image_size: 256                     # <-- 256 is a good start on a small GPU (patch 16 -> 16x16 grid)
+  stats_file: null                    # run scripts/00_compute_dataset_stats.py and put its JSON here (optional)
+  encoded_file: data/my_dataset_encoded.pt
+  encoded_device: cpu
+
+project:
+  runs_dir: runs_my_dataset           # keep runs for different datasets apart
+
+# A smaller dataset needs more epochs to see the same number of samples. The cutover step is
+# in optimizer steps: aim for roughly 2 epochs' worth  (= 2 * num_images / batch_size).
+vqvae:
+  train: {epochs: 40, batch_size: 64, microbatch_size: 8}
+  cutover_step: 1000                  # <-- ~2 epochs of your dataset in optimizer steps
+
+autoencoder:
+  train: {epochs: 40, batch_size: 64, microbatch_size: 8}
+
+maskgit:
+  model: {num_layers: 12}             # a 16x16 grid needs less depth than 32x32
+  train: {epochs: 400, batch_size: 128, microbatch_size: 32}
+
+cgan:
+  generator:     {num_layers: 8}
+  discriminator: {num_layers: 12}
+  train: {epochs: 400, batch_size: 128, microbatch_size: 32}
+
+generate:
+  num_images: 32
+  batch_size: 4

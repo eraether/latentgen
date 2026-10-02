@@ -1,0 +1,30 @@
+# Audio: Google Speech Commands (1-second spoken words, 16 kHz) from Hugging Face.
+#   python examples/prepare_hf_dataset.py audio --dataset google/speech_commands --config v0.02 \
+#       --out data/speech_commands --sample-rate 16000
+#   bash scripts/run_pipeline.sh configs/examples/hf_speech_commands.yaml
+# The same four stages, one-dimensional: a clip of 16384 samples / patch 16 = a 1 x 1024 grid of coarse VQ codes
+# plus a 32-channel fine latent; MaskGIT and the GAN see exactly the token count of a 32x32 image.
+# Generated clips are written as .wav files (plus waveform PNGs) by scripts/04_generate.py.
+project: {runs_dir: runs_speech}
+data:
+  kind: audio
+  image_dir: data/speech_commands     # folder of .wav files (the key name is shared with images)
+  audio_length: 16384                 # samples per clip (1.02 s at 16 kHz); must be a multiple of patch_size
+  sample_rate: 16000
+  stats_file: null                    # defaults: mean 0, std 0.1 -- or run scripts/00_compute_dataset_stats.py
+  encoded_file: data/speech_commands_encoded.pt
+vqvae:
+  model: {patch_size: 16, codebook_size: 256, bottleneck_dim: 64}
+  train: {epochs: 20, batch_size: 64, microbatch_size: 16}
+  cutover_step: 3000
+autoencoder:
+  model: {patch_size: 16, bottleneck_dim: 32}
+  train: {epochs: 20, batch_size: 64, microbatch_size: 16}
+maskgit:
+  model: {num_layers: 16}
+  train: {epochs: 100, batch_size: 128, microbatch_size: 32}
+cgan:
+  generator: {num_layers: 8}
+  discriminator: {num_layers: 12}
+  train: {epochs: 100, batch_size: 128, microbatch_size: 32}
+generate: {num_images: 16, batch_size: 8}

@@ -1,0 +1,28 @@
+# ImageNet-1k at 256 px from Hugging Face (gated: accept the terms on the dataset page, `huggingface-cli login`).
+#   python examples/prepare_hf_dataset.py images --dataset ILSVRC/imagenet-1k --split train \
+#       --out data/imagenet256 --size 256 --max-items 200000        # drop --max-items for all 1.28 M images
+#   bash scripts/run_pipeline.sh configs/examples/hf_imagenet256.yaml
+# 256 / patch 16 = 16x16 grids. ImageNet is far more diverse than faces: use the larger models and more epochs,
+# and compute the dataset's own normalisation stats (scripts/00_compute_dataset_stats.py) for best results.
+project: {runs_dir: runs_imagenet256}
+data:
+  kind: image
+  image_dir: data/imagenet256
+  image_size: 256
+  stats_file: null            # -> data/imagenet_stats.json after running scripts/00_compute_dataset_stats.py --out ...
+  encoded_file: data/imagenet256_encoded.pt
+  num_workers: 8
+vqvae:
+  model: {codebook_size: 1024, bottleneck_dim: 64}   # a bigger vocabulary for a much more varied dataset
+  train: {epochs: 8, batch_size: 64, microbatch_size: 8}
+  cutover_step: 6000
+autoencoder:
+  train: {epochs: 8, batch_size: 64, microbatch_size: 8}
+maskgit:
+  model: {num_layers: 24, hidden_size: 768, intermediate_size: 3072, num_attention_heads: 12}
+  train: {epochs: 60, batch_size: 256, microbatch_size: 32}
+cgan:
+  generator: {num_layers: 12}
+  discriminator: {num_layers: 16}
+  train: {epochs: 60, batch_size: 128, microbatch_size: 16}
+generate: {num_images: 32, batch_size: 8, pairs_per_row: 2}

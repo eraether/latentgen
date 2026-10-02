@@ -1,0 +1,16 @@
+# Everything EXCEPT PyTorch.
+#
+# PyTorch must match your GPU / CUDA driver, so it is installed separately:
+#     ./install.sh            (detects your GPU and prints / runs the right command)
+#     or see https://pytorch.org/get-started/locally/
+#
+# Then:  pip install -r requirements.txt && pip install -e .
+
+pyyaml>=6.0          # config files
+tqdm>=4.60           # progress bars
+pillow>=9.0          # image loading / saving
+tensorboard>=2.12    # training curves (torch.utils.tensorboard needs this package)
+schedulefree>=1.2    # schedule-free AdamW (stages 1a, 1b, 2)
+
+# optional, for `pytest tests/`
+pytest>=7

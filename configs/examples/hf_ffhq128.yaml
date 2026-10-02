@@ -1,0 +1,23 @@
+# FFHQ at 128 px from Hugging Face (70k faces, ~2 GB download).
+#   python examples/prepare_hf_dataset.py images --dataset nuwandaa/ffhq128 --out data/ffhq128 --size 128
+#   bash scripts/run_pipeline.sh configs/examples/hf_ffhq128.yaml
+# 128 / patch 16 = 8x8 code grids: everything trains in a fraction of the 512-px time (great first real run).
+project: {runs_dir: runs_ffhq128}
+data:
+  kind: image
+  image_dir: data/ffhq128
+  image_size: 128
+  encoded_file: data/ffhq128_encoded.pt
+vqvae:
+  train: {epochs: 10, batch_size: 64, microbatch_size: 16}
+  cutover_step: 2200          # ~2 epochs of 70k images at batch 64
+autoencoder:
+  train: {epochs: 10, batch_size: 64, microbatch_size: 16}
+maskgit:
+  model: {num_layers: 12}     # 64 tokens per image: a small transformer is plenty
+  train: {epochs: 100, batch_size: 256, microbatch_size: 64}
+cgan:
+  generator: {num_layers: 8}
+  discriminator: {num_layers: 12}
+  train: {epochs: 100, batch_size: 256, microbatch_size: 64}
+generate: {num_images: 64, batch_size: 16, pairs_per_row: 4}
